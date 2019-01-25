@@ -1,0 +1,318 @@
+﻿  Compiling CUDA source file kernel.cu...
+  
+  D:\xzyy\computer graphic\codes\Chebyshev_sim_x64\Chebyshev_sim_x64\Chebyshev\CUDA_Projective_Armadillo>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\bin\nvcc.exe" -gencode=arch=compute_35,code=\"sm_35,compute_35\" --use-local-env -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2017\Enterprise\VC\Tools\MSVC\14.15.26726\bin\HostX86\x64" -x cu  -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\include"  -G   --keep-dir x64\Debug -maxrregcount=0  --machine 64 --compile -cudart static  -g   -DWIN32 -DWIN64 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Fdx64\Debug\vc141.pdb /FS /Zi /RTC1 /MDd " -o x64\Debug\kernel.cu.obj "D:\xzyy\computer graphic\codes\Chebyshev_sim_x64\Chebyshev_sim_x64\Chebyshev\CUDA_Projective_Armadillo\kernel.cu" 
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\MY_MATH.h(46): warning C4005: 'FORCEINLINE': macro redefinition
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2318): warning C4010: single-line comment contains line-continuation character
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(337): warning : variable "R" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(337): warning : variable "B" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(337): warning : variable "C" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(126): warning : conversion from a string literal to "char *" is deprecated
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(127): warning : conversion from a string literal to "char *" is deprecated
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1022): warning : variable "err" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1303): warning : variable "cudaErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1782): warning : variable "err" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1783): warning : variable "cuspErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1904): warning : variable "cudaErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(43): warning : conversion from a string literal to "char *" is deprecated
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2310): warning : variable "cudaErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2311): warning : variable "cuspErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2312): warning : variable "cublasStatus" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2016): warning : variable "cudaErr" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2017): warning : variable "cuspErr" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2018): warning : variable "cublasStatus" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2109): warning : variable "cudaErr" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2110): warning : variable "cuspErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2111): warning : variable "cublasStatus" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2213): warning : variable "cudaErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2214): warning : variable "cuspErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2215): warning : variable "cublasErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2216): warning : variable "r1" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2333): warning : variable "cudaErr" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2334): warning : variable "cuspErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2335): warning : variable "cublasStatus" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2364): warning : variable "cudaErr" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2365): warning : variable "cuspErr" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2366): warning : variable "cublasStatus" was set but never used
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2374): warning : variable "now_time" was declared but never referenced
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\MY_MATH.h(46): warning C4005: 'FORCEINLINE': macro redefinition
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2318): warning C4010: single-line comment contains line-continuation character
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(43): warning : conversion from a string literal to "char *" is deprecated
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(126): warning : conversion from a string literal to "char *" is deprecated
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(127): warning : conversion from a string literal to "char *" is deprecated
+  kernel.cu
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/MY_GLSL.h(94): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(61): warning C4305: 'initializing': truncation from 'double' to 'float'
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(55): warning C4305: 'initializing': truncation from 'double' to 'float'
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(317): warning C4305: 'argument': truncation from 'double' to 'float'
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(326): warning C4305: 'argument': truncation from 'double' to 'GLfloat'
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(399): warning C4305: '=': truncation from 'double' to 'float'
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(557): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(558): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(562): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(565): warning C4244: '-=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(566): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(586): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(587): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(588): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(616): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(617): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(618): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(592): warning C4305: 'initializing': truncation from 'int' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(585): note: while compiling class template member function 'void TET_MESH<TYPE>::Select(TYPE [],TYPE [],int &)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(601): note: see reference to function template instantiation 'void TET_MESH<TYPE>::Select(TYPE [],TYPE [],int &)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(546): note: see reference to class template instantiation 'TET_MESH<TYPE>' being compiled
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(37): note: see reference to class template instantiation 'CUDA_PROJECTIVE_TET_MESH<TYPE>' being compiled
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(59): note: see reference to class template instantiation 'ARMADILLO<float>' being compiled
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(596): warning C4305: 'initializing': truncation from 'int' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(511): warning C4305: 'initializing': truncation from 'double' to 'float'
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(478): note: while compiling class template member function 'void TET_MESH<TYPE>::Render(int,int)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(160): note: see reference to function template instantiation 'void TET_MESH<TYPE>::Render(int,int)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(45): warning C4305: 'argument': truncation from 'double' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(40): note: while compiling class template member function 'ARMADILLO<float>::ARMADILLO(void)'
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(59): note: see reference to function template instantiation 'ARMADILLO<float>::ARMADILLO(void)' being compiled
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(50): warning C4305: 'argument': truncation from 'double' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(55): warning C4244: 'argument': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(58): warning C4305: 'argument': truncation from 'double' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(115): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\TET_MESH.h(95): note: while compiling class template member function 'void TET_MESH<TYPE>::Initialize(void)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(842): note: see reference to function template instantiation 'void TET_MESH<TYPE>::Initialize(void)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1596): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1564): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::compute_A_Matrix(TYPE)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(891): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::compute_A_Matrix(TYPE)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1684): warning C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1443): warning C4477: 'fprintf' : format string '%d' requires an argument of type 'int', but variadic argument 3 has type 'unsigned __int64'
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1443): note: consider using '%zd' in the format string
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1403): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::outputA(TYPE)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(886): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::outputA(TYPE)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1183): warning C4244: 'initializing': conversion from '__int64' to 'int', possible loss of data
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(1170): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::select_handles(void)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(881): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::select_handles(void)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(762): warning C4305: '=': truncation from 'double' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(739): note: while compiling class template member function 'CUDA_PROJECTIVE_TET_MESH<TYPE>::CUDA_PROJECTIVE_TET_MESH(void)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\ARMADILLO.h(41): note: see reference to function template instantiation 'CUDA_PROJECTIVE_TET_MESH<TYPE>::CUDA_PROJECTIVE_TET_MESH(void)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(763): warning C4305: '=': truncation from 'double' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(80): warning C4305: '=': truncation from 'double' to 'TYPE'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(338): note: see reference to function template instantiation 'void Update<float>(TYPE)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(533): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(575): note: see reference to function template instantiation 'void OPENGL_DRIVER::Get_Selection_Ray<float>(int,int,TYPE *,TYPE *)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(534): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(535): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(536): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(537): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(538): warning C4244: '=': conversion from 'double' to 'TYPE', possible loss of data
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2415): warning C4244: 'argument': conversion from 'double' to 'const float', possible loss of data
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2363): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::Update(TYPE,int,TYPE [])'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(85): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::Update(TYPE,int,TYPE [])' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2595): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2365): warning C4101: 'cuspErr': unreferenced local variable
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2333): warning C4101: 'cudaErr': unreferenced local variable
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2327): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::upSample(int &)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2536): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::upSample(int &)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2312): warning C4101: 'cublasStatus': unreferenced local variable
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2304): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::downSample(int &)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2532): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::downSample(int &)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2216): warning C4101: 'r1': unreferenced local variable
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2212): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::performGaussSeidelIteration(int,int,float)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2535): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::performGaussSeidelIteration(int,int,float)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2109): warning C4101: 'cudaErr': unreferenced local variable
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2108): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::calculateAP(int,float *,const float *,float *)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2348): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::calculateAP(int,float *,const float *,float *)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2016): warning C4101: 'cudaErr': unreferenced local variable
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2015): note: while compiling class template member function 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::Diag_Update(int,float *,const float *,const float *)'
+          with
+          [
+              TYPE=float
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2137): note: see reference to function template instantiation 'void CUDA_PROJECTIVE_TET_MESH<TYPE>::Diag_Update(int,float *,const float *,const float *)' being compiled
+          with
+          [
+              TYPE=float
+          ]
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\../lib/CUDA_PROJECTIVE_TET_MESH.h(2017): warning C4101: 'cuspErr': unreferenced local variable
+d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\MY_MATH.h(260): warning C4244: 'argument': conversion from 'T' to 'float', possible loss of data
+          with
+          [
+              T=double
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\lib\MY_MATH.h(294): note: see reference to function template instantiation 'T Magnitude<T>(T *)' being compiled
+          with
+          [
+              T=double
+          ]
+  d:\xzyy\computer graphic\codes\chebyshev_sim_x64\chebyshev_sim_x64\chebyshev\cuda_projective_armadillo\OPENGL_DRIVER.h(580): note: see reference to function template instantiation 'T Normalize<double>(T *)' being compiled
+          with
+          [
+              T=double
+          ]
