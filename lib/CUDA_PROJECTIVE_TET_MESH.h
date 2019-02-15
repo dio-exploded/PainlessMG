@@ -45,9 +45,10 @@
 
 #define GRAVITY			-9.8
 #define RADIUS_SQUARED	0.002//0.01
+#define CG_EPSILON 1e-15
 
 //#define NO_ORDER
-#define MATRIX_OUTPUT
+//#define MATRIX_OUTPUT
 
 //#define PRECOMPUTE_DENSE_UPDATE
 #define DEFAULT_UPDATE
@@ -60,6 +61,8 @@ const float minus_one = -1.0;
 const float inf = INFINITY;
 const float tol = 1e-5;
 const int threadsPerBlock = 64;
+const int Reduction_threadsPerBlock = 8;
+const int UtAUs_threadPerBlock = 1;
 const int tet_threadsPerBlock = 64;
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -182,6 +185,67 @@ __device__ void Get_Rotation(float F[3][3], float R[3][3])
         R[i][j]+=F[i][k]*inv_U[k][j];    
 }
 
+__device__ void solve3x3(const float *A, const float *A_addition, const float *b, float *x)
+{
+	float r[3];
+	float p[3];
+	float Ap[3];
+	float alpha, beta;
+	float old_r_norm, r_norm;
+	float dot;
+
+	for (int i = 0; i < 3; i++)
+		r[i] = b[i];
+
+	r_norm = 0;
+
+	for (int i = 0; i < 3; i++)
+		r_norm += r[i] * r[i];
+
+	if (r_norm < CG_EPSILON) return;
+
+
+	for (int i = 0; i < 3; i++)
+		p[i] = r[i];
+
+
+	for (int l = 0; l < 3; l++)
+	{
+
+		for (int i = 0; i < 3; i++)
+			Ap[i] = 0;
+
+#pragma unroll
+		for (int k = 0; k < 3; k++)
+			for (int i = 0; i < 3; i++)
+				Ap[i] += (A[k * 3 + i] + A_addition[k * 3 + i]) * p[k];
+		dot = 0;
+
+		for (int i = 0; i < 3; i++)
+			dot += Ap[i] * p[i];
+		alpha = r_norm / dot;
+
+		for (int i = 0; i < 3; i++)
+		{
+			x[i] += alpha * p[i];
+			r[i] -= alpha * Ap[i];
+		}
+		old_r_norm = r_norm;
+		r_norm = 0;
+
+		for (int i = 0; i < 3; i++)
+			r_norm += r[i] * r[i];
+
+		if (r_norm < CG_EPSILON) return;
+
+		beta = r_norm / old_r_norm;
+
+		for (int i = 0; i < 3; i++)
+			p[i] = r[i] + beta * p[i];
+	}
+
+}
+
 __device__ void solve4x4(const float *A,const float *dA, const float *b,float *x)
 {
 	float r[4];
@@ -198,7 +262,7 @@ __device__ void solve4x4(const float *A,const float *dA, const float *b,float *x
 	for (int i = 0; i < 4; i++)
 		r_norm += r[i] * r[i];
 
-	if (r_norm < EPSILON) return;
+	if (r_norm < CG_EPSILON) return;
 
 	for (int i = 0; i < 4; i++)
 		p[i] = r[i];
@@ -224,13 +288,81 @@ __device__ void solve4x4(const float *A,const float *dA, const float *b,float *x
 		for (int i = 0; i < 4; i++)
 			r_norm += r[i] * r[i];
 
-		if (r_norm < EPSILON) return;
+		if (r_norm < CG_EPSILON) return;
 
 		beta = r_norm / old_r_norm;
 		for (int i = 0; i < 4; i++)
 			p[i] = r[i] + beta * p[i];
 	}
 
+}
+
+__global__ void Mogai_Kernel(float *X, const float *UtAU_Diag_Val, const float *UtAU_Diag_addition, const float *b, const int base)
+{
+	int i = blockIdx.x;
+	int o = threadIdx.x;
+	int t = base + i;
+	const float *A = UtAU_Diag_Val + 144 * t;
+	const float *A_addition = UtAU_Diag_addition + 144 * t;
+	float *x = X + 12 * t;
+	__shared__ float r[12], p[12], Ap[12];
+	__shared__ volatile float temp[18];
+	__shared__ float dot, alpha, beta, r_norm, old_r_norm;
+	__shared__ bool flag;
+	r[o] = b[12 * t + o];
+	p[o] = r[o];
+	temp[o] = r[o] * r[o];
+	temp[o] += temp[o + 6];
+	temp[o] += temp[o + 3];
+	//__syncthreads();
+	if (o == 0)
+	{
+		r_norm = temp[0] + temp[1] + temp[2];
+		//r_norm = 0;
+		//for (int s = 0; s < 12; s++)
+		//	r_norm += temp[s];
+		flag = false;
+		if (r_norm < CG_EPSILON)
+			flag = true;
+	}
+	__syncthreads();
+	if (flag) return;
+
+	for (int l = 0; l < 4; l++)
+	{
+		Ap[o] = 0;
+#pragma unroll
+		for (int k = 0; k < 12; k++)
+			Ap[o] += (A[12 * o + k] + A_addition[12 * o + k]) * p[k];
+		temp[o] = p[o] * Ap[o];
+		temp[o] += temp[o + 6];
+		temp[o] += temp[o + 3];
+		//__syncthreads();
+		if (o == 0)
+		{
+			dot = temp[0] + temp[1] + temp[2];
+			alpha = r_norm / dot;
+		}
+		__syncthreads();
+		x[o] += alpha * p[o];
+		r[o] -= alpha * Ap[o];
+		temp[o] = r[o] * r[o];
+		temp[o] += temp[o + 6];
+		temp[o] += temp[o + 3];
+		//__syncthreads();
+		if (o == 0)
+		{
+			old_r_norm = r_norm;
+			r_norm = temp[0] + temp[1] + temp[2];
+			beta = r_norm / old_r_norm;
+			if (r_norm < CG_EPSILON)
+				flag = true;
+		}
+		__syncthreads();
+		if (flag) return;
+		p[o] = beta * p[o] + r[o];
+		//__syncthreads();
+	}
 }
 
 __device__ void collision_detection(const float *X, float *fixed_X,int *fixed)
@@ -301,7 +433,7 @@ __global__ void Basic_Update_Kernel(float* X, float* V, const float damping, con
 	V[i * 3 + 1] *= damping;
 	V[i * 3 + 2] *= damping;
 	//Apply gravity
-	V[i * 3 + 1] += GRAVITY * t;
+	//V[i * 3 + 1] += GRAVITY * t;
 	//Position update
 	X[i * 3 + 0] += V[i * 3 + 0] * t;
 	X[i * 3 + 1] += V[i * 3 + 1] * t;
@@ -384,16 +516,18 @@ __global__ void Diag_Update_Kernel(float* MF_Diag, const int* more_fixed,const i
 	if (more_fixed[v] || collision_fixed[v])
 	{
 		float mag = collision_fixed[v] ? collision_mag : control_mag;
-		MF_Diag[i] = mag;
-		int base = 0;
-		for (int l = 0; l < layer; l++)
-		{
-			int t = where_to_update[layer*v + l];
-			for (int dj = 0; dj < 4; dj++)
-				for (int di = 0; di < 4; di++)
-					atomicAdd(&UtAUs_diag[base + t * 16 + dj * 4 + di], mag*precomputed_diag[v * 16 + dj * 4 + di]);
-			base += handles_num[l] * 16;
-		}
+		MF_Diag[9 * i + 0] = mag;
+		MF_Diag[9 * i + 4] = mag;
+		MF_Diag[9 * i + 8] = mag;
+		//int base = 0;
+		//for (int l = 0; l < layer; l++)
+		//{
+		//	int t = where_to_update[layer*v + l];
+		//	for (int dj = 0; dj < 4; dj++)
+		//		for (int di = 0; di < 4; di++)
+		//			atomicAdd(&UtAUs_diag[base + t * 16 + dj * 4 + di], mag*precomputed_diag[v * 16 + dj * 4 + di]);
+		//	base += handles_num[l] * 16;
+		//}
 	}
 	
 }
@@ -424,8 +558,8 @@ __global__ void Constraint_1_Kernel(const float* X, const float* init_B, const f
 }
 
 __global__ void Energy_Gradient_Kernel(float *G, const float* Tet_Temp, const int* VTT, const int* vtt_num, \
-	const int *fixed,const int *more_fixed, const int *collision_fixed, const float *fixed_X,const float *X,\
-	const int *vertex2index, const float control_mag,const float collision_mag, const int number)
+	const int *fixed, const int *more_fixed, const int *collision_fixed, const float *fixed_X, const float *X, \
+	const int *vertex2index, const float control_mag, const float collision_mag, const int number)
 {
 	int v = blockDim.x * blockIdx.x + threadIdx.x;
 	if (v >= number)	return;
@@ -435,16 +569,16 @@ __global__ void Energy_Gradient_Kernel(float *G, const float* Tet_Temp, const in
 	int i = vertex2index[v];
 	for (int index = vtt_num[v]; index < vtt_num[v + 1]; index++)
 	{
-		G[i] += Tet_Temp[VTT[index] * 3 + 0];
-		G[number + i] += Tet_Temp[VTT[index] * 3 + 1];
-		G[number * 2 + i] += Tet_Temp[VTT[index] * 3 + 2];
+		G[3 * i + 0] += Tet_Temp[VTT[index] * 3 + 0];
+		G[3 * i + 1] += Tet_Temp[VTT[index] * 3 + 1];
+		G[3 * i + 2] += Tet_Temp[VTT[index] * 3 + 2];
 	}
 	if (fixed[v] || more_fixed[v] || collision_fixed[v])
 	{
 		float mag = collision_fixed[v] ? collision_mag : control_mag;
-		G[i] += mag * (fixed_X[3 * v + 0] - X[3 * v + 0]);
-		G[number + i] += mag * (fixed_X[3 * v + 1] - X[3 * v + 1]);
-		G[number * 2 + i] += mag * (fixed_X[3 * v + 2] - X[3 * v + 2]);
+		G[3 * i + 0] += mag * (fixed_X[3 * v + 0] - X[3 * v + 0]);
+		G[3 * i + 1] += mag * (fixed_X[3 * v + 1] - X[3 * v + 1]);
+		G[3 * i + 2] += mag * (fixed_X[3 * v + 2] - X[3 * v + 2]);
 	}
 }
 
@@ -454,29 +588,52 @@ __global__ void Inertia_Gradient_Kernel(float *G, const float *inertia, const fl
 	if (v >= number)	return;
 	float c = M[v] * inv_t*inv_t;
 	int i = vertex2index[v];
-	G[i] += c * (inertia[3 * i + 0] - X[3 * i + 0]);
-	G[number + i] += c * (inertia[3 * i + 1] - X[3 * i + 1]);
-	G[2 * number + i] += c * (inertia[3 * i + 2] - X[3 * i + 2]);
+	G[3 * i + 0] += c * (inertia[3 * v + 0] - X[3 * v + 0]);
+	G[3 * i + 1] += c * (inertia[3 * v + 1] - X[3 * v + 1]);
+	G[3 * i + 2] += c * (inertia[3 * v + 2] - X[3 * v + 2]);
+	G[3 * i + 1] += GRAVITY * M[v];
 }
 
-__global__ void MF_Diag_Update_Kernel(float *Y,const float *X, const float *Diag, const int number)
+__global__ void MF_Diag_Update_Kernel(float *Y,const float *Diag, const float *X, const int number)
 {
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	if (i >= number)	return;
-	Y[i] = Diag[i] * X[i];
+	Y[3 * i + 0] = 0;
+	Y[3 * i + 1] = 0;
+	Y[3 * i + 2] = 0;
+	for (int di = 0; di < 3; di++)
+		for (int dj = 0; dj < 3; dj++)
+			Y[i * 3 + di] += Diag[9 * i + dj * 3 + di] * X[i * 3 + dj];
+}
+
+__global__ void UtAUs_Diag_Update_First_Path_Kernel(float *UtAUs_Diag_addition, const float *MF_Diag_addition, const float *precomputed_4x4, const int *update_offset, int number)
+{
+	int i = blockIdx.x*blockDim.x / 16 + threadIdx.x / 16;
+	if (i > number) return;
+	int q = threadIdx.x % 16;
+	int tx = q / 4, ty = q % 4;
+	int po = i / 9, pt = i % 9;
+	int px = pt / 3, py = pt % 3;
+	atomicAdd(UtAUs_Diag_addition + 144 * update_offset[po] + (px * 4 + tx) * 12 + py * 4 + ty, MF_Diag_addition[i] * precomputed_4x4[16 * po + 4 * tx + ty]);
+}
+
+__global__ void UtAUs_Diag_Update_Second_Path_Kernel(float *UtAUs_Diag_addition, const float *temp_Diag_addition, const int *update_offset, int number)
+{
+	int i = blockIdx.x*blockDim.y + threadIdx.y;
+	if (i > number) return;
+	int off = threadIdx.x;
+	atomicAdd(UtAUs_Diag_addition + 144 * update_offset[i] + off, temp_Diag_addition[144 * i + off]);
 }
 
 __global__ void UtAUs_Diag_Update_Kernel(float *Y, const float *Diag, const float *X, const int number)
 {
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	if (i >= number)	return;
-	Y[i * 4 + 0] = 0;
-	Y[i * 4 + 1] = 0;
-	Y[i * 4 + 2] = 0;
-	Y[i * 4 + 3] = 0;
-	for (int di = 0; di < 4; di++)
-		for (int dj = 0; dj < 4; dj++)
-			Y[i * 4 + di] += Diag[16 * i + dj * 4 + di] * X[i * 4 + dj];
+	for (int k = 0; k < 12; k++)
+		Y[i * 12 + k] = 0;
+	for (int di = 0; di < 12; di++)
+		for (int dj = 0; dj < 12; dj++)
+			Y[i * 12 + di] += Diag[144 * i + dj * 12 + di] * X[i * 12 + dj];
 }
 
 __global__ void Colored_GS_MF_Kernel(float *X, const float *MF_Diag,const float *MF_Diag_addition,const float *b, const int base, const int number)
@@ -484,7 +641,7 @@ __global__ void Colored_GS_MF_Kernel(float *X, const float *MF_Diag,const float 
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	if (i >= number)	return;
 	int t = base + i;
-	X[t] = b[t] / (MF_Diag[t] + MF_Diag_addition[t]);
+	solve3x3(MF_Diag + 9 * t, MF_Diag_addition + 9 * t, b + 3 * t, X + 3 * t);
 }
 
 __global__ void Colored_GS_UtAU_Kernel(float *X, const float *UtAU_Diag,const float *UtAU_Diag_addition, const float *b, const int base, const int number)
@@ -501,9 +658,9 @@ __global__ void Update_DeltaX_Kernel(float *X, const float *deltaX, const int *i
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	if (i >= number)	return;
 	int v = index2vertex[i];
-	X[3 * v + 0] += deltaX[i];
-	X[3 * v + 1] += deltaX[i + number];
-	X[3 * v + 2] += deltaX[i + number * 2];
+	X[3 * v + 0] += deltaX[3 * i + 0];
+	X[3 * v + 1] += deltaX[3 * i + 1];
+	X[3 * v + 2] += deltaX[3 * i + 2];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -565,17 +722,33 @@ public:
 
 	TYPE*	MD;			//matrix diagonal
 	//matrix full
+	int MF_nnz;
 	int *MF_rowInd;
 	int *MF_colInd;
 	TYPE *MF_Val;
-	int MF_nnz;
-	TYPE *MF_Diag;
+
+	int *MF_U_rowInd;
+	int *MF_U_colInd;
+	TYPE *MF_U_Val;
+	int MF_U_nnz;
 
 	int *MF_GS_U_Ptr;
 	int *MF_GS_U_rowInd;
 	int *MF_GS_U_colInd;
-	TYPE *MF_GS_U_Val;
-	int MF_GS_U_nnz;
+
+	int *MF_D_rowInd;
+	int *MF_D_colInd;
+	TYPE *MF_D_Val;
+	int MF_D_nnz;
+
+	int *MF_L_rowInd;
+	int *MF_L_colInd;
+	TYPE *MF_L_Val;
+	int MF_L_nnz;
+
+	int *MF_GS_L_Ptr;
+	int *MF_GS_L_rowInd;
+	int *MF_GS_L_colInd;
 
 
 	int**   UtAUs_rowInd;
@@ -584,13 +757,34 @@ public:
 	TYPE** UtAUs_Val;
 	int* UtAUs_nnz;
 	TYPE** UtAUs_Diag;
+	int **UtAUs_update_offset;
+	int **UtAUs_mirror_offset;
+	int **UtAUs_half_offset;
+	int *UtAUs_half_num;
+	TYPE **UtAUs_precomputed_4x4;
+
+	int*  UtAUs_U_nnz;
+	int** UtAUs_U_rowInd;
+	int** UtAUs_U_colInd;
+	TYPE** UtAUs_U_Val;
 
 	int** UtAUs_GS_U_Ptr;
 	int** UtAUs_GS_U_rowInd;
-	int** UtAUs_GS_U_rowPtr;
 	int** UtAUs_GS_U_colInd;
-	TYPE** UtAUs_GS_U_Val;
-	int *UtAUs_GS_U_nnz;
+
+	int*  UtAUs_D_nnz;
+	int** UtAUs_D_rowInd;
+	int** UtAUs_D_colInd;
+	TYPE** UtAUs_D_Val;
+
+	int*  UtAUs_L_nnz;
+	int** UtAUs_L_rowInd;
+	int** UtAUs_L_colInd;
+	TYPE** UtAUs_L_Val;
+
+	int** UtAUs_GS_L_Ptr;
+	int** UtAUs_GS_L_rowInd;
+	int** UtAUs_GS_L_colInd;
 
 	TYPE *precomputed_Diag_addition;
 	int **handle_child_num;
@@ -645,6 +839,7 @@ public:
 	//for conjugated gradient
 	TYPE **dev_temp_X;
 	TYPE **dev_deltaX;
+	TYPE **dev_B;
 	TYPE **dev_R;
 	TYPE **dev_P;
 	TYPE **dev_AP;
@@ -674,11 +869,33 @@ public:
 	TYPE **dev_UtAUs_Val_Dense;
 	TYPE **dev_UtAUs_Diag;
 	TYPE **dev_UtAUs_Diag_addition;
+	int **dev_UtAUs_update_offset;
+	int **dev_UtAUs_mirror_offset;
+	int **dev_UtAUs_half_offset;
+	TYPE **dev_UtAUs_precomputed_4x4;
+
+	int **dev_UtAUs_U_rowInd;
+	int **dev_UtAUs_U_rowPtr;
+	int **dev_UtAUs_U_colInd;
+	TYPE **dev_UtAUs_U_Val;
 
 	int **dev_UtAUs_GS_U_rowInd;
 	int **dev_UtAUs_GS_U_rowPtr;
 	int **dev_UtAUs_GS_U_colInd;
-	TYPE **dev_UtAUs_GS_U_Val;
+
+	int **dev_UtAUs_D_rowInd;
+	int **dev_UtAUs_D_rowPtr;
+	int **dev_UtAUs_D_colInd;
+	TYPE **dev_UtAUs_D_Val;
+
+	int **dev_UtAUs_L_rowInd;
+	int **dev_UtAUs_L_rowPtr;
+	int **dev_UtAUs_L_colInd;
+	TYPE **dev_UtAUs_L_Val;
+
+	int **dev_UtAUs_GS_L_rowInd;
+	int **dev_UtAUs_GS_L_rowPtr;
+	int **dev_UtAUs_GS_L_colInd;
 
 	TYPE *dev_precomputed_Diag_addition;
 	int **dev_handle_child_num;
@@ -698,19 +915,34 @@ public:
 	TYPE*	dev_VC;
 	TYPE*	dev_MD;
 
-	TYPE*   dev_MF;
-	TYPE* dev_MF_Diag;
-	TYPE* dev_MF_Diag_addition;
-
-	int* dev_MF_rowInd;
-	int* dev_MF_rowPtr;
-	int* dev_MF_colInd;
 	TYPE* dev_MF_Val;
+	TYPE* dev_MF_Diag_addition;
+	int* dev_MF_rowInd;
+	int* dev_MF_colInd;
+	TYPE *dev_MF_temp_Val;
 
 	int* dev_MF_GS_U_rowInd;
 	int* dev_MF_GS_U_rowPtr;
 	int* dev_MF_GS_U_colInd;
-	TYPE* dev_MF_GS_U_Val;
+	TYPE* dev_MF_U_Val;
+
+	int* dev_MF_U_rowInd;
+	int* dev_MF_U_rowPtr;
+	int* dev_MF_U_colInd;
+
+	int* dev_MF_D_rowInd;
+	int* dev_MF_D_rowPtr;
+	int* dev_MF_D_colInd;
+	TYPE* dev_MF_D_Val;
+
+	int* dev_MF_L_rowInd;
+	int* dev_MF_L_rowPtr;
+	int* dev_MF_L_colInd;
+
+	int* dev_MF_GS_L_rowInd;
+	int* dev_MF_GS_L_rowPtr;
+	int* dev_MF_GS_L_colInd;
+	TYPE* dev_MF_L_Val;
 
 	int *dev_where_to_update;
 	int *dev_handles_num;
@@ -783,7 +1015,7 @@ public:
 		dev_Tet_Temp	= 0;
 		dev_VC			= 0;
 		dev_MD			= 0;
-		dev_MF = 0;
+		//dev_MF = 0;
 		dev_VTT			= 0;
 		dev_vtt_num		= 0;
 
@@ -826,7 +1058,7 @@ public:
 		if (dev_Tet_Temp)	cudaFree(dev_Tet_Temp);
 		if (dev_VC)			cudaFree(dev_VC);
 		if (dev_MD)			cudaFree(dev_MD);
-		if (dev_MF)			cudaFree(dev_MF);
+		//if (dev_MF)			cudaFree(dev_MF);
 		if (dev_VTT)			cudaFree(dev_VTT);
 		if (dev_vtt_num)		cudaFree(dev_vtt_num);
 
@@ -848,21 +1080,21 @@ public:
 		//Initialize_MF(t);
 		Build_VTT();
 		printf(".");
-		for(int t=0; t<tet_number; t++)
+		for (int t = 0; t < tet_number; t++)
 		{
-			TQ[t*4+0]=0;
-			TQ[t*4+1]=0;
-			TQ[t*4+2]=0;
-			TQ[t*4+3]=1;
+			TQ[t * 4 + 0] = 0;
+			TQ[t * 4 + 1] = 0;
+			TQ[t * 4 + 2] = 0;
+			TQ[t * 4 + 3] = 1;
 		}
 
 		dims = (int*)malloc(sizeof(int)*(layer + 1));
-		dims[layer] = number;
+		dims[layer] = 3 * number;
 		for (int l = 0; l < layer; l++)
-			dims[l] = 4 * handles_num[l];
-		
-		memset(fixed_X, 0, sizeof(TYPE)*3*number);
-		for(int v=0;v<number;v++)
+			dims[l] = 12 * handles_num[l];
+
+		memset(fixed_X, 0, sizeof(TYPE) * 3 * number);
+		for (int v = 0; v < number; v++)
 			if (fixed[v])
 			{
 				fixed_X[3 * v + 0] = X[3 * v + 0];
@@ -892,7 +1124,7 @@ public:
 		printf(".");
 		CPUCoo2GPUCsr();
 		printf(".");
-		prepare_Diag_Part();
+		//prepare_Diag_Part();
 		checkCudaErrors(cudaGetLastError());
 		printf(".");
 		printf("\n");
@@ -1038,16 +1270,18 @@ public:
 		dev_temp_X = (TYPE**)malloc(sizeof(TYPE*)*(layer + 1));
 		dev_deltaX = (TYPE**)malloc(sizeof(TYPE*)*(layer + 1));
 		dev_R = (TYPE**)malloc(sizeof(TYPE*)*(layer + 1));
+		dev_B = (TYPE**)malloc(sizeof(TYPE*)*(layer + 1));
 		dev_P = (TYPE**)malloc(sizeof(TYPE*)*(layer + 1));
 		dev_AP = (TYPE**)malloc(sizeof(TYPE*)*(layer + 1));
 
 		for (int l = 0; l <= layer; l++)
 		{
-			err = cudaMalloc((void**)&dev_temp_X[l],	sizeof(TYPE)*3*dims[l]);
-			err = cudaMalloc((void**)&dev_deltaX[l],	sizeof(TYPE)*3*dims[l]);
-			err = cudaMalloc((void**)&dev_R[l],			sizeof(TYPE)*3*dims[l]);
-			err = cudaMalloc((void**)&dev_P[l],			sizeof(TYPE)*3*dims[l]);
-			err = cudaMalloc((void**)&dev_AP[l],		sizeof(TYPE)*3*dims[l]);
+			err = cudaMalloc((void**)&dev_temp_X[l],	sizeof(TYPE)*dims[l]);
+			err = cudaMalloc((void**)&dev_deltaX[l],	sizeof(TYPE)*dims[l]);
+			err = cudaMalloc((void**)&dev_R[l],			sizeof(TYPE)*dims[l]);
+			err = cudaMalloc((void**)&dev_B[l],			sizeof(TYPE)*dims[l]);
+			err = cudaMalloc((void**)&dev_P[l],			sizeof(TYPE)*dims[l]);
+			err = cudaMalloc((void**)&dev_AP[l],		sizeof(TYPE)*dims[l]);
 		}
 
 		err = cudaMalloc((void**)&dev_Dm,			sizeof(TYPE)*tet_number*9);
@@ -1505,46 +1739,59 @@ public:
 		Us_rowPtr = (int**)malloc(sizeof(int*)*layer);
 		Us_colInd = (int**)malloc(sizeof(int*)*layer);
 		Us_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
-		Us_nnz= (int*)malloc(sizeof(int)*layer);
+		Us_nnz = (int*)malloc(sizeof(int)*layer);
 		for (int l = 0; l < layer - 1; l++)
 		{
-			Us_rowPtr[l] = new int[dims[l+1] + 1];
-			Us_colInd[l] = new int[4 * handles_num[l + 1]];
-			Us_Val[l] = new TYPE[4 * handles_num[l + 1]];
-			Us_nnz[l] = 4 * handles_num[l + 1];
+			Us_rowPtr[l] = new int[dims[l + 1] + 1];
+			Us_colInd[l] = new int[dims[l + 1]];
+			Us_Val[l] = new TYPE[dims[l + 1]];
+			Us_nnz[l] = dims[l + 1];
 			int i1 = 0;
 			for (int r = 0; r < handles_num[l + 1]; r++)
 			{
+#ifdef NO_ORDER
+				int c = handle[l + 1][r];
+#else
 				int c = vertex2index[l][handle[l + 1][index2vertex[l + 1][r]]];
-				for (int t = 0; t < 4; t++)
+#endif
+				for (int t = 0; t < 12; t++)
 				{
-					Us_rowPtr[l][4*r+t] = i1;
-					Us_colInd[l][i1] = 4 * c + t;
-					Us_Val[l][i1]=1.0;
+					Us_rowPtr[l][12 * r + t] = i1;
+					Us_colInd[l][i1] = 12 * c + t;
+					Us_Val[l][i1] = 1.0;
 					i1++;
 				}
 			}
-			Us_rowPtr[l][dims[l+1]] = i1;
+			Us_rowPtr[l][dims[l + 1]] = i1;
 		}
 
-		Us_rowPtr[layer-1] = new int[dims[layer] + 1];
-		Us_colInd[layer-1] = new int[4 * handles_num[layer]];
-		Us_Val[layer-1] = new TYPE[4 * handles_num[layer]];
-		Us_nnz[layer - 1] = 4 * handles_num[layer];
+		Us_nnz[layer - 1] = 4 * dims[layer];
+		Us_rowPtr[layer - 1] = new int[dims[layer] + 1];
+		Us_colInd[layer - 1] = new int[Us_nnz[layer - 1]];
+		Us_Val[layer - 1] = new TYPE[Us_nnz[layer - 1]];
+
 		int i1 = 0;
 		for (int r = 0; r < number; r++)
 		{
+#ifdef NO_ORDER
+			int v = r;
+			int c = handle[layer][r];
+#else
 			int v = index2vertex[layer][r];
 			int c = vertex2index[layer - 1][handle[layer][v]];
-			Us_rowPtr[layer-1][r] = i1;
-			for (int t = 0; t < 4; t++)
+#endif
+			for (int d = 0; d < 3; d++)
 			{
-				Us_colInd[layer - 1][i1] = 4 * c + t;
-				Us_Val[layer - 1][i1] = (t == 3) ? 1 : X[3 * v + t];
-				i1++;
+				Us_rowPtr[layer - 1][r * 3 + d] = i1;
+				for (int t = 0; t < 4; t++)
+				{
+					Us_colInd[layer - 1][i1] = 12 * c + 4 * d + t;
+					Us_Val[layer - 1][i1] = (t == 3) ? 1 : X[3 * v + t];
+					i1++;
+				}
 			}
 		}
-		Us_rowPtr[layer - 1][dims[layer]] = i1;
+		Us_rowPtr[layer - 1][3 * number] = i1;
 
 	}
 
@@ -1566,7 +1813,7 @@ public:
 	{
 		// finest layer
 		TYPE inv_t = 1 / t;
-		std::map<std::pair<int, int>, TYPE> cooMap;
+		std::map<std::pair<int, int>, TYPE*> cooMap;
 		for (int t = 0; t < tet_number; t++)
 		{
 			int*	v = &Tet[t * 4];
@@ -1580,64 +1827,131 @@ public:
 			for (int i = 0; i < 4; i++)
 				for (int j = 0; j < 4; j++)
 				{
+					std::pair<int, int> key = std::make_pair(vertex2index[layer][v[i]], vertex2index[layer][v[j]]);
+					if (cooMap.find(key) == cooMap.end())
+					{
+						cooMap[key] = new TYPE[9];
+						memset(cooMap[key], 0, sizeof(TYPE) * 9);
+					}
+					TYPE *ref = cooMap[key];
+
 					TYPE dot = 0;
 					for (int k = 0; k < 3; k++)
 						dot += idm[i * 3 + k] * idm[j * 3 + k];
-					cooMap[std::make_pair(vertex2index[layer][v[i]], vertex2index[layer][v[j]])] += dot * Vol[t] * elasticity;
+
+					dot *= Vol[t] * elasticity;
+
+					ref[0] += dot;
+					ref[4] += dot;
+					ref[8] += dot;
 				}
 		}
 		for (int i = 0; i < number; i++)
 		{
-			TYPE& entry = cooMap[std::make_pair(i, i)];
+			TYPE *ref = cooMap[std::make_pair(i, i)];
+			TYPE diag = 0;
 			int v = index2vertex[layer][i];
-			entry += M[v] * inv_t*inv_t;
+			diag += M[v] * inv_t*inv_t;
 			if (fixed[v])
-				entry += control_mag;
+				diag += control_mag;
+			ref[0] += diag;
+			ref[4] += diag;
+			ref[8] += diag;
 		}
 		{
 			MF_nnz = cooMap.size();
-			MF_rowInd = new int[MF_nnz];
+			MF_Val = new TYPE[MF_nnz * 9];
 			MF_colInd = new int[MF_nnz];
-			MF_Val = new TYPE[MF_nnz];
-			MF_Diag = new TYPE[number];
+			MF_rowInd = new int[MF_nnz];
 
-			MF_GS_U_nnz = (MF_nnz - number) >> 1;
+			MF_L_nnz = MF_U_nnz = (MF_nnz - number) >> 1;
+			MF_D_nnz = number;
+
+			int off_l = 0, off_d = MF_L_nnz, off_u = MF_L_nnz + number;
+
+			MF_GS_L_Ptr = new int[colors_num[layer] + 1];
+			MF_GS_L_rowInd = new int[MF_L_nnz];
+			MF_GS_L_colInd = new int[MF_L_nnz];
+			MF_L_Val = MF_Val + off_l * 9;
+
+			MF_L_rowInd = MF_rowInd + off_l;
+			MF_L_colInd = MF_colInd + off_l;
+
+			MF_D_rowInd = MF_rowInd + off_d;
+			MF_D_colInd = MF_colInd + off_d;;
+			MF_D_Val = MF_Val + off_d * 9;
+
+			MF_U_rowInd = MF_rowInd + off_u;
+			MF_U_colInd = MF_colInd + off_u;
+
 			MF_GS_U_Ptr = new int[colors_num[layer] + 1];
-			MF_GS_U_rowInd = new int[MF_GS_U_nnz];
-			MF_GS_U_colInd = new int[MF_GS_U_nnz];
-			MF_GS_U_Val = new TYPE[MF_GS_U_nnz];
+			MF_GS_U_rowInd = new int[MF_U_nnz];
+			MF_GS_U_colInd = new int[MF_U_nnz];
+			MF_U_Val = MF_Val + off_u * 9;
 
-			int i1 = 0, i2 = 0;
-			int p_base = -1;
-			int r_base = -1, c_base = 0;
+			int i_l = 0, i_d = 0, i_u = 0;
+			int p_base_l = -1, p_base_u = -1;
+			int now_base_l = 0, next_base_l = color_vertices_num[layer][1];
+			int r_base_u = -1, c_base_u = 0;
+
+			std::map<std::pair<int, int>, int> block_offset;
 			for (auto iter : cooMap)
 			{
 				int r = iter.first.first, c = iter.first.second;
-				TYPE v = iter.second;
-				MF_rowInd[i1] = r;
-				MF_colInd[i1] = c;
-				MF_Val[i1] = v;
-				i1++;
-
+				TYPE *v = iter.second;
 				if (r == c)
-					MF_Diag[r] = v;
+				{
+					MF_D_rowInd[i_d] = r;
+					MF_D_colInd[i_d] = c;
+					for (int i = 0; i < 9; i++)
+						MF_D_Val[i_d * 9 + i] = v[i];
+					block_offset[iter.first] = off_d + i_d;
+					i_d++;
+				}
+
 				if (r < c)
 				{
-					while (r >= c_base)
+					while (r >= c_base_u)
 					{
-						p_base++;
-						MF_GS_U_Ptr[p_base] = i2;
-						r_base = color_vertices_num[layer][p_base];
-						c_base = color_vertices_num[layer][p_base + 1];
+						p_base_u++;
+						MF_GS_U_Ptr[p_base_u] = i_u;
+						r_base_u = color_vertices_num[layer][p_base_u];
+						c_base_u = color_vertices_num[layer][p_base_u + 1];
 					}
-					MF_GS_U_rowInd[i2] = r - r_base;
-					MF_GS_U_colInd[i2] = c - c_base;
-					MF_GS_U_Val[i2] = v;
-					i2++;
+					MF_U_rowInd[i_u] = r;
+					MF_U_colInd[i_u] = c;
+					MF_GS_U_rowInd[i_u] = r - r_base_u;
+					MF_GS_U_colInd[i_u] = c - c_base_u;
+					for (int i = 0; i < 9; i++)
+						MF_U_Val[i_u * 9 + i] = v[i];
+					block_offset[iter.first] = off_u + i_u;
+					i_u++;
+				}
+
+				if (r > c)
+				{
+					while (r >= next_base_l)
+					{
+						p_base_l++;
+						MF_GS_L_Ptr[p_base_l] = i_l;
+						now_base_l = color_vertices_num[layer][p_base_l + 1];
+						next_base_l = color_vertices_num[layer][p_base_l + 2];
+					}
+					MF_L_rowInd[i_l] = r;
+					MF_L_colInd[i_l] = c;
+					MF_GS_L_rowInd[i_l] = r - now_base_l;
+					MF_GS_L_colInd[i_l] = c;
+					for (int i = 0; i < 9; i++)
+						MF_L_Val[i_l * 9 + i] = v[i];
+					block_offset[iter.first] = off_l + i_l;
+					i_l++;
 				}
 			}
-			for (; p_base < colors_num[layer] - 1;)
-				MF_GS_U_Ptr[++p_base] = i2;
+			for (; p_base_u < colors_num[layer] - 1;)
+				MF_GS_U_Ptr[++p_base_u] = i_u;
+			for (; p_base_l < colors_num[layer] - 1;)
+				MF_GS_L_Ptr[++p_base_l] = i_l;
+			//build_constraints(block_offset);
 		}
 		//finest layer end
 		if (!layer)
@@ -1647,111 +1961,230 @@ public:
 		UtAUs_colInd = (int**)malloc(sizeof(int*)*layer);
 		UtAUs_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
 		UtAUs_nnz = (int*)malloc(sizeof(int)*layer);
-		UtAUs_Diag = (TYPE**)malloc(sizeof(TYPE*)*layer);
+
+		UtAUs_L_rowInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_L_colInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_L_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
+		UtAUs_L_nnz = (int*)malloc(sizeof(int)*layer);
+
+		UtAUs_D_rowInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_D_colInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_D_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
+		UtAUs_D_nnz = (int*)malloc(sizeof(int)*layer);
+
+		UtAUs_U_rowInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_U_colInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_U_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
+		UtAUs_U_nnz = (int*)malloc(sizeof(int)*layer);
 
 		UtAUs_GS_U_Ptr = (int**)malloc(sizeof(int*)*layer);
 		UtAUs_GS_U_rowInd = (int**)malloc(sizeof(int*)*layer);
 		UtAUs_GS_U_colInd = (int**)malloc(sizeof(int*)*layer);
-		UtAUs_GS_U_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
-		UtAUs_GS_U_nnz = (int*)malloc(sizeof(int)*layer);
+
+		UtAUs_GS_L_Ptr = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_GS_L_rowInd = (int**)malloc(sizeof(int*)*layer);
+		UtAUs_GS_L_colInd = (int**)malloc(sizeof(int*)*layer);
+
+		UtAUs_update_offset = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_update_offset = (int**)malloc(sizeof(int*)*layer);
+
+		//UtAUs_mirror_offset = (int**)malloc(sizeof(int*)*layer);
+		//dev_UtAUs_mirror_offset = (int**)malloc(sizeof(int*)*layer);
+
+		UtAUs_half_num = (int*)malloc(sizeof(int)*layer);
+		UtAUs_half_offset = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_half_offset = (int**)malloc(sizeof(int*)*layer);
+
+		UtAUs_precomputed_4x4 = (TYPE**)malloc(sizeof(TYPE*)*layer);
+		dev_UtAUs_precomputed_4x4 = (TYPE**)malloc(sizeof(TYPE*)*layer);
 
 		//initial coo44Map from cooMap
 		std::map<std::pair<int, int>, TYPE*> coo44Map;
 		for (auto iter : cooMap)
 		{
 			int r = iter.first.first, c = iter.first.second;
-			TYPE v = iter.second;
+			TYPE *v = iter.second;
+#ifndef NO_ORDER
 			int i = index2vertex[layer][r], j = index2vertex[layer][c];
-			int rd = vertex2index[layer-1][handle[layer][i]];
-			int cd = vertex2index[layer-1][handle[layer][j]];
+			int rd = vertex2index[layer - 1][handle[layer][i]];
+			int cd = vertex2index[layer - 1][handle[layer][j]];
+#else
+			int i = r, j = c;
+			int rd = handle[layer][i];
+			int cd = handle[layer][j];
+#endif
 			std::pair<int, int> key = std::make_pair(rd, cd);
 			if (coo44Map.find(key) == coo44Map.end())
 			{
-				coo44Map[key] = new TYPE[16];
-				memset(coo44Map[key], 0,sizeof(TYPE) * 16);
+				coo44Map[key] = new TYPE[144];
+				memset(coo44Map[key], 0, sizeof(TYPE) * 144);
 			}
-
-			for (int dj = 0; dj < 4; dj++)
+			for (int vi = 0; vi < 3; vi++)
 				for (int di = 0; di < 4; di++)
-				{
-					TYPE v1 = (di == 3) ? 1 : X[3 * i + di];
-					TYPE v2 = (dj == 3) ? 1 : X[3 * j + dj];
-					coo44Map[key][4 * dj + di] += v * v1*v2;
-				}
+					for (int vj = 0; vj < 3; vj++)
+						for (int dj = 0; dj < 4; dj++)
+						{
+							TYPE v1 = (di == 3) ? 1 : X[3 * i + di];
+							TYPE v2 = (dj == 3) ? 1 : X[3 * j + dj];
+							coo44Map[key][(vi * 4 + di) * 12 + (vj * 4 + dj)] += v[3 * vi + vj] * v1*v2;
+						}
 		}
 
 		//the rest case
 		for (int l = layer - 1; l >= 0; l--)
 		{
-			UtAUs_nnz[l] = coo44Map.size() * 16;
+			UtAUs_nnz[l] = coo44Map.size();
+			UtAUs_L_nnz[l] = (UtAUs_nnz[l] - handles_num[l]) >> 1;
+			UtAUs_D_nnz[l] = handles_num[l];
+			UtAUs_U_nnz[l] = (UtAUs_nnz[l] - handles_num[l]) >> 1;
+
+			int off_l = 0, off_d = UtAUs_L_nnz[l], off_u = UtAUs_L_nnz[l] + handles_num[l];
+
 			UtAUs_rowInd[l] = new int[UtAUs_nnz[l]];
 			UtAUs_colInd[l] = new int[UtAUs_nnz[l]];
-			UtAUs_Val[l] = new TYPE[UtAUs_nnz[l]];
-			UtAUs_Diag[l] = new TYPE[16 * handles_num[l]];
+			UtAUs_Val[l] = new TYPE[UtAUs_nnz[l] * 144];
 
-			int i1 = 0, i2 = 0;
-			int p_base = -1;
-			int r_base = -1, c_base = 0;
+			UtAUs_L_rowInd[l] = UtAUs_rowInd[l] + off_l;
+			UtAUs_L_colInd[l] = UtAUs_colInd[l] + off_l;
+			UtAUs_L_Val[l] = UtAUs_Val[l] + 144 * off_l;
+
+			UtAUs_D_rowInd[l] = UtAUs_rowInd[l] + off_d;
+			UtAUs_D_colInd[l] = UtAUs_colInd[l] + off_d;
+			UtAUs_D_Val[l] = UtAUs_Val[l] + 144 * off_d;
+
+			UtAUs_U_rowInd[l] = UtAUs_rowInd[l] + off_u;
+			UtAUs_U_colInd[l] = UtAUs_colInd[l] + off_u;
+			UtAUs_U_Val[l] = UtAUs_Val[l] + 144 * off_u;
+
+			UtAUs_GS_U_Ptr[l] = new int[colors_num[l] + 1];
+			UtAUs_GS_U_rowInd[l] = new int[UtAUs_U_nnz[l]];
+			UtAUs_GS_U_colInd[l] = new int[UtAUs_U_nnz[l]];
+
+			UtAUs_GS_L_Ptr[l] = new int[colors_num[l] + 1];
+			UtAUs_GS_L_rowInd[l] = new int[UtAUs_L_nnz[l]];
+			UtAUs_GS_L_colInd[l] = new int[UtAUs_L_nnz[l]];
+
+			int i_l = 0, i_d = 0, i_u = 0;
+			int p_base_l = -1, p_base_u = -1;
+			int now_base_l = 0, next_base_l = color_vertices_num[l][1];
+			int r_base_u = -1, c_base_u = 0;
+
+			std::map<std::pair<int, int>, int> block_offset;
+
 			for (auto iter : coo44Map)
 			{
 				int r = iter.first.first, c = iter.first.second;
 				TYPE *v = iter.second;
-				for (int dj = 0; dj < 4; dj++)
-					for (int di = 0; di < 4; di++)
-					{
-						UtAUs_rowInd[l][i1] = r * 4 + di;
-						UtAUs_colInd[l][i1] = c * 4 + dj;
-						UtAUs_Val[l][i1] = v[4 * dj + di];
-						i1++;
-					}
+
 				if (r == c)
 				{
-					for (int dj = 0; dj < 4; dj++)
-						for (int di = 0; di < 4; di++)
-							UtAUs_Diag[l][16 * r + dj * 4 + di] = v[4 * dj + di];
+					UtAUs_D_rowInd[l][i_d] = r;
+					UtAUs_D_colInd[l][i_d] = c;
+					for (int i = 0; i < 144; i++)
+						UtAUs_D_Val[l][i_d * 144 + i] = v[i];
+					block_offset[iter.first] = off_d + i_d;
+					i_d++;
 				}
-			}
-			sortCoo(UtAUs_rowInd[l], UtAUs_colInd[l], UtAUs_Val[l], UtAUs_nnz[l]);
 
-			if (!stored_as_dense[l])
-			{
-				UtAUs_GS_U_nnz[l] = (UtAUs_nnz[l] - 16 * handles_num[l]) >> 1;
-				UtAUs_GS_U_Ptr[l] = new int[colors_num[l] + 1];
-				UtAUs_GS_U_rowInd[l] = new int[UtAUs_GS_U_nnz[l]];
-				UtAUs_GS_U_colInd[l] = new int[UtAUs_GS_U_nnz[l]];
-				UtAUs_GS_U_Val[l] = new TYPE[UtAUs_GS_U_nnz[l]];
-
-				for (auto iter : coo44Map)
+				if (r < c)
 				{
-					int r = iter.first.first, c = iter.first.second;
-					TYPE *v = iter.second;
-
-					if (r < c)
+					while (r >= c_base_u)
 					{
-						while (r * 4 >= c_base)
-						{
-							p_base++;
-							UtAUs_GS_U_Ptr[l][p_base] = i2;
-							r_base = color_vertices_num[l][p_base] * 4;
-							c_base = color_vertices_num[l][p_base + 1] * 4;
-						}
-						for (int dj = 0; dj < 4; dj++)
-							for (int di = 0; di < 4; di++)
-							{
-								UtAUs_GS_U_rowInd[l][i2] = r * 4 + di - r_base;
-								UtAUs_GS_U_colInd[l][i2] = c * 4 + dj - c_base;;
-								UtAUs_GS_U_Val[l][i2] = v[4 * dj + di];
-								i2++;
-							}
+						p_base_u++;
+						UtAUs_GS_U_Ptr[l][p_base_u] = i_u;
+						r_base_u = color_vertices_num[l][p_base_u];
+						c_base_u = color_vertices_num[l][p_base_u + 1];
 					}
+					UtAUs_U_rowInd[l][i_u] = r;
+					UtAUs_U_colInd[l][i_u] = c;
+					UtAUs_GS_U_rowInd[l][i_u] = r - r_base_u;
+					UtAUs_GS_U_colInd[l][i_u] = c - c_base_u;
+					for (int i = 0; i < 144; i++)
+						UtAUs_U_Val[l][i_u * 144 + i] = v[i];
+					block_offset[iter.first] = off_u + i_u;
+					i_u++;
 				}
-				for (; p_base < colors_num[l] - 1;)
-					UtAUs_GS_U_Ptr[l][++p_base] = i2;
 
-				for (int i = 0; i < colors_num[l] - 1; i++)
-					sortCoo(UtAUs_GS_U_rowInd[l] + UtAUs_GS_U_Ptr[l][i], UtAUs_GS_U_colInd[l] + UtAUs_GS_U_Ptr[l][i], \
-						UtAUs_GS_U_Val[l] + UtAUs_GS_U_Ptr[l][i], UtAUs_GS_U_Ptr[l][i + 1] - UtAUs_GS_U_Ptr[l][i]);
+				if (r > c)
+				{
+					while (r >= next_base_l)
+					{
+						p_base_l++;
+						UtAUs_GS_L_Ptr[l][p_base_l] = i_l;
+						now_base_l = color_vertices_num[l][p_base_l + 1];
+						next_base_l = color_vertices_num[l][p_base_l + 2];
+					}
+					UtAUs_L_rowInd[l][i_l] = r;
+					UtAUs_L_colInd[l][i_l] = c;
+					UtAUs_GS_L_rowInd[l][i_l] = r - now_base_l;
+					UtAUs_GS_L_colInd[l][i_l] = c;
+					for (int i = 0; i < 144; i++)
+						UtAUs_L_Val[l][i_l * 144 + i] = v[i];
+					block_offset[iter.first] = off_l + i_l;
+					i_l++;
+				}
 			}
+			for (; p_base_u < colors_num[l] - 1;)
+				UtAUs_GS_U_Ptr[l][++p_base_u] = i_u;
+			for (; p_base_l < colors_num[l] - 1;)
+				UtAUs_GS_L_Ptr[l][++p_base_l] = i_l;
+			//sortCoo(UtAUs_rowInd[l], UtAUs_colInd[l], UtAUs_Val[l], UtAUs_nnz[l]);
+			if (l == layer - 1)
+			{
+				UtAUs_update_offset[l] = new int[number];
+				//UtAUs_half_num[l] = 0;
+				//UtAUs_half_offset[l] = new int[MF_nnz];
+				UtAUs_precomputed_4x4[l] = new TYPE[number * 16];
+				for (int i = 0; i < number; i++)
+				{
+					int v = index2vertex[l+1][i];
+					UtAUs_update_offset[l][i] = vertex2index[l][handle[l + 1][v]];
+					//if (rd >= cd)
+					//	UtAUs_half_offset[l][UtAUs_half_num[l]++] = n;
+					for (int di = 0; di < 4; di++)
+						for (int dj = 0; dj < 4; dj++)
+						{
+							TYPE v1 = (di == 3) ? 1 : X[3 * v + di];
+							TYPE v2 = (dj == 3) ? 1 : X[3 * v + dj];
+							UtAUs_precomputed_4x4[l][16 * i + di * 4 + dj] = v1 * v2;
+						}
+				}
+
+				cudaMalloc(&dev_UtAUs_update_offset[l], sizeof(int)*number);
+				cudaMemcpy(dev_UtAUs_update_offset[l], UtAUs_update_offset[l], sizeof(int)*number, cudaMemcpyHostToDevice);
+				//cudaMalloc(&dev_UtAUs_half_offset[l], sizeof(int)*UtAUs_half_num[l]);
+				//cudaMemcpy(dev_UtAUs_half_offset[l], UtAUs_half_offset[l], sizeof(int)*UtAUs_half_num[l], cudaMemcpyHostToDevice);
+				cudaMalloc(&dev_UtAUs_precomputed_4x4[l], sizeof(TYPE)*number * 16);
+				cudaMemcpy(dev_UtAUs_precomputed_4x4[l], UtAUs_precomputed_4x4[l], sizeof(TYPE)*number * 16, cudaMemcpyHostToDevice);
+			}
+			else
+			{
+				UtAUs_update_offset[l] = new int[handles_num[l + 1]];
+				//UtAUs_half_num[l] = 0;
+				//UtAUs_half_offset[l] = new int[UtAUs_nnz[l + 1]];
+				for (int i = 0; i < handles_num[l + 1]; i++)
+				{
+					int v = index2vertex[l+1][i];
+					UtAUs_update_offset[l][i] = vertex2index[l][handle[l + 1][v]];
+					//if (rd >= cd)
+					//	UtAUs_half_offset[l][UtAUs_half_num[l]++] = n;
+				}
+
+				cudaMalloc(&dev_UtAUs_update_offset[l], sizeof(int)*handles_num[l + 1]);
+				cudaMemcpy(dev_UtAUs_update_offset[l], UtAUs_update_offset[l], sizeof(int)*handles_num[l + 1], cudaMemcpyHostToDevice);
+				//cudaMalloc(&dev_UtAUs_half_offset[l], sizeof(int)*UtAUs_half_num[l]);
+				//cudaMemcpy(dev_UtAUs_half_offset[l], UtAUs_half_offset[l], sizeof(int)*UtAUs_half_num[l], cudaMemcpyHostToDevice);
+			}
+
+			//UtAUs_mirror_offset[l] = new int[UtAUs_L_nnz[l]];
+			//for (int n = 0; n < UtAUs_L_nnz[l]; n++)
+			//{
+			//	int r = UtAUs_rowInd[l][n], c = UtAUs_colInd[l][n];
+			//	UtAUs_mirror_offset[l][n] = block_offset[std::make_pair(c, r)];
+			//}
+			//cudaMalloc(&dev_UtAUs_mirror_offset[l], sizeof(int)*UtAUs_L_nnz[l]);
+			//cudaMemcpy(dev_UtAUs_mirror_offset[l], UtAUs_mirror_offset[l], sizeof(int)*UtAUs_L_nnz[l], cudaMemcpyHostToDevice);
+
 			if (l)
 			{
 				std::map<std::pair<int, int>, TYPE*> _coo44Map;
@@ -1759,18 +2192,17 @@ public:
 				{
 					int r = iter.first.first, c = iter.first.second;
 					int i = index2vertex[l][r], j = index2vertex[l][c];
-					int rd = vertex2index[l-1][handle[l][i]];
-					int cd = vertex2index[l-1][handle[l][j]];
+					int rd = vertex2index[l - 1][handle[l][i]];
+					int cd = vertex2index[l - 1][handle[l][j]];
 					TYPE *v = iter.second;
 					std::pair<int, int> key = std::make_pair(rd, cd);
 					if (_coo44Map.find(key) == _coo44Map.end())
 					{
-						_coo44Map[key] = new TYPE[16];
-						memset(_coo44Map[key], 0, sizeof(TYPE) * 16);
+						_coo44Map[key] = new TYPE[144];
+						memset(_coo44Map[key], 0, sizeof(TYPE) * 144);
 					}
-					for (int dj = 0; dj < 4; dj++)
-						for (int di = 0; di < 4; di++)
-							_coo44Map[key][4 * dj + di] += v[4 * dj + di];
+					for (int i = 0; i < 144; i++)
+						_coo44Map[key][i] += v[i];
 				}
 				for (auto iter : coo44Map)
 					delete iter.second;
@@ -1813,34 +2245,80 @@ public:
 		}
 
 		// MF
+		err = cudaMalloc(&dev_MF_Val, sizeof(TYPE)*(MF_L_nnz + number + MF_U_nnz) * 9);
+		err = cudaMalloc(&dev_MF_Diag_addition, sizeof(TYPE)*number * 9);
+		err = cudaMalloc(&dev_MF_rowInd, sizeof(int)*MF_nnz);
+		err = cudaMalloc(&dev_MF_colInd, sizeof(int)*MF_nnz);
+		err = cudaMalloc(&dev_MF_temp_Val, sizeof(TYPE)*MF_nnz * 9 * 16);
 
-		err = cudaMalloc((void**)&dev_MF_rowInd, sizeof(int)*MF_nnz);
-		err = cudaMalloc((void**)&dev_MF_rowPtr, sizeof(int)*(number + 1));
-		err = cudaMalloc((void**)&dev_MF_colInd, sizeof(int)*MF_nnz);
-		err = cudaMalloc((void**)&dev_MF_Val, sizeof(TYPE)*MF_nnz);
-		err = cudaMalloc((void**)&dev_MF_Diag, sizeof(TYPE)*number);
+		dev_MF_L_Val = dev_MF_Val;
+		dev_MF_D_Val = dev_MF_Val + MF_L_nnz * 9;
+		dev_MF_U_Val = dev_MF_Val + MF_L_nnz * 9 + number * 9;
 
-		err = cudaMemcpy(dev_MF_rowInd, MF_rowInd, sizeof(int)*MF_nnz, cudaMemcpyHostToDevice);
-		checkCudaErrors(cusparseXcoo2csr(cusparseHandle, dev_MF_rowInd, MF_nnz, number, dev_MF_rowPtr, CUSPARSE_INDEX_BASE_ZERO));
-		err = cudaMemcpy(dev_MF_colInd, MF_colInd, sizeof(int)*MF_nnz, cudaMemcpyHostToDevice);
-		err = cudaMemcpy(dev_MF_Val, MF_Val, sizeof(TYPE)*MF_nnz, cudaMemcpyHostToDevice);
-		err = cudaMemcpy(dev_MF_Diag, MF_Diag, sizeof(TYPE)*number, cudaMemcpyHostToDevice);
+		dev_MF_L_rowInd = dev_MF_rowInd;
+		dev_MF_D_rowInd = dev_MF_rowInd + MF_L_nnz;
+		dev_MF_U_rowInd = dev_MF_rowInd + MF_L_nnz + number;
 
-		err = cudaMalloc((void**)&dev_MF_GS_U_rowInd, sizeof(int)*MF_GS_U_nnz);
-		err = cudaMalloc((void**)&dev_MF_GS_U_rowPtr, sizeof(int)*(number + colors_num[layer] + 1));
-		err = cudaMalloc((void**)&dev_MF_GS_U_colInd, sizeof(int)*MF_GS_U_nnz);
-		err = cudaMalloc((void**)&dev_MF_GS_U_Val, sizeof(int)*MF_GS_U_nnz);
+		dev_MF_L_colInd = dev_MF_colInd;
+		dev_MF_D_colInd = dev_MF_colInd + MF_L_nnz;
+		dev_MF_U_colInd = dev_MF_colInd + MF_L_nnz + number;
 
-		err = cudaMemcpy(dev_MF_GS_U_rowInd, MF_GS_U_rowInd, sizeof(int)*MF_GS_U_nnz, cudaMemcpyHostToDevice);
 
+		//MF_L
+		err = cudaMalloc((void**)&dev_MF_GS_L_rowInd, sizeof(int)*MF_L_nnz);
+		err = cudaMalloc((void**)&dev_MF_GS_L_rowPtr, sizeof(int)*(number + colors_num[layer] + 1));
+		err = cudaMalloc((void**)&dev_MF_GS_L_colInd, sizeof(int)*MF_L_nnz);
+
+		//err = cudaMalloc((void**)&dev_MF_L_rowInd, sizeof(int)*MF_L_nnz);
+		err = cudaMalloc((void**)&dev_MF_L_rowPtr, sizeof(int)*(number + 1));
+		//err = cudaMalloc((void**)&dev_MF_L_colInd, sizeof(int)*MF_L_nnz);
+
+		err = cudaMemcpy(dev_MF_GS_L_rowInd, MF_GS_L_rowInd, sizeof(int)*MF_L_nnz, cudaMemcpyHostToDevice);
 		for (int i = 0; i < colors_num[layer] - 1; i++)
 		{
-			cuspErr=cusparseXcoo2csr(cusparseHandle, dev_MF_GS_U_rowInd + MF_GS_U_Ptr[i], MF_GS_U_Ptr[i + 1] - MF_GS_U_Ptr[i], \
+			cuspErr = cusparseXcoo2csr(cusparseHandle, dev_MF_GS_L_rowInd + MF_GS_L_Ptr[i], MF_GS_L_Ptr[i + 1] - MF_GS_L_Ptr[i], \
+				color_vertices_num[layer][i + 2] - color_vertices_num[layer][i + 1], \
+				dev_MF_GS_L_rowPtr + color_vertices_num[layer][i + 1] - color_vertices_num[layer][1] + i, CUSPARSE_INDEX_BASE_ZERO);
+		}
+		err = cudaMemcpy(dev_MF_GS_L_colInd, MF_GS_L_colInd, sizeof(int)*MF_L_nnz, cudaMemcpyHostToDevice);
+
+		err = cudaMemcpy(dev_MF_L_rowInd, MF_L_rowInd, sizeof(int)*MF_L_nnz, cudaMemcpyHostToDevice);
+		cuspErr = cusparseXcoo2csr(cusparseHandle, dev_MF_L_rowInd, MF_L_nnz, number, dev_MF_L_rowPtr, CUSPARSE_INDEX_BASE_ZERO);
+		err = cudaMemcpy(dev_MF_L_colInd, MF_L_colInd, sizeof(int)*MF_L_nnz, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(dev_MF_L_Val, MF_L_Val, sizeof(TYPE)*MF_L_nnz * 9, cudaMemcpyHostToDevice);
+
+		//MF_D
+		//err = cudaMalloc((void**)&dev_MF_D_rowInd, sizeof(int)*MF_D_nnz);
+		err = cudaMalloc((void**)&dev_MF_D_rowPtr, sizeof(int)*(number + 1));
+		//err = cudaMalloc((void**)&dev_MF_D_colInd, sizeof(int)*MF_D_nnz);
+
+		err = cudaMemcpy(dev_MF_D_rowInd, MF_D_rowInd, sizeof(int)*MF_D_nnz, cudaMemcpyHostToDevice);
+		cuspErr = cusparseXcoo2csr(cusparseHandle, dev_MF_D_rowInd, number, number, dev_MF_D_rowPtr, CUSPARSE_INDEX_BASE_ZERO);
+		err = cudaMemcpy(dev_MF_D_colInd, MF_D_colInd, sizeof(int)*MF_D_nnz, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(dev_MF_D_Val, MF_D_Val, sizeof(TYPE)*MF_D_nnz * 9, cudaMemcpyHostToDevice);
+
+		//MF_U
+		err = cudaMalloc((void**)&dev_MF_GS_U_rowInd, sizeof(int)*MF_U_nnz);
+		err = cudaMalloc((void**)&dev_MF_GS_U_rowPtr, sizeof(int)*(number + colors_num[layer] + 1));
+		err = cudaMalloc((void**)&dev_MF_GS_U_colInd, sizeof(int)*MF_U_nnz);
+
+		//err = cudaMalloc((void**)&dev_MF_U_rowInd, sizeof(int)*MF_U_nnz);
+		err = cudaMalloc((void**)&dev_MF_U_rowPtr, sizeof(int)*(number + 1));
+		//err = cudaMalloc((void**)&dev_MF_U_colInd, sizeof(int)*MF_U_nnz);
+
+		err = cudaMemcpy(dev_MF_GS_U_rowInd, MF_GS_U_rowInd, sizeof(int)*MF_U_nnz, cudaMemcpyHostToDevice);
+		for (int i = 0; i < colors_num[layer] - 1; i++)
+		{
+			cuspErr = cusparseXcoo2csr(cusparseHandle, dev_MF_GS_U_rowInd + MF_GS_U_Ptr[i], MF_GS_U_Ptr[i + 1] - MF_GS_U_Ptr[i], \
 				color_vertices_num[layer][i + 1] - color_vertices_num[layer][i], dev_MF_GS_U_rowPtr + color_vertices_num[layer][i] + i, CUSPARSE_INDEX_BASE_ZERO);
 		}
 
-		err = cudaMemcpy(dev_MF_GS_U_colInd, MF_GS_U_colInd, sizeof(int)*MF_GS_U_nnz, cudaMemcpyHostToDevice);
-		err = cudaMemcpy(dev_MF_GS_U_Val, MF_GS_U_Val, sizeof(TYPE)*MF_GS_U_nnz, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(dev_MF_GS_U_colInd, MF_GS_U_colInd, sizeof(int)*MF_U_nnz, cudaMemcpyHostToDevice);
+
+		err = cudaMemcpy(dev_MF_U_rowInd, MF_U_rowInd, sizeof(int)*MF_U_nnz, cudaMemcpyHostToDevice);
+		cuspErr = cusparseXcoo2csr(cusparseHandle, dev_MF_U_rowInd, MF_U_nnz, number, dev_MF_U_rowPtr, CUSPARSE_INDEX_BASE_ZERO);
+		err = cudaMemcpy(dev_MF_U_colInd, MF_U_colInd, sizeof(int)*MF_U_nnz, cudaMemcpyHostToDevice);
+		err = cudaMemcpy(dev_MF_U_Val, MF_U_Val, sizeof(TYPE)*MF_U_nnz * 9, cudaMemcpyHostToDevice);
 
 		// UtAUs
 		dev_UtAUs_rowInd = (int**)malloc(sizeof(int*)*layer);
@@ -1849,11 +2327,31 @@ public:
 		dev_UtAUs_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
 		dev_UtAUs_Val_Dense = (TYPE**)malloc(sizeof(TYPE*)*layer);
 		dev_UtAUs_Diag = (TYPE**)malloc(sizeof(TYPE*)*layer);
+		dev_UtAUs_Diag_addition = (TYPE**)malloc(sizeof(TYPE*)*layer);
+
+		dev_UtAUs_L_rowInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_L_colInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_L_rowPtr = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_L_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
+
+		dev_UtAUs_D_rowInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_D_colInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_D_rowPtr = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_D_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
+
+		dev_UtAUs_U_rowInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_U_colInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_U_rowPtr = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_U_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
 
 		dev_UtAUs_GS_U_rowInd = (int**)malloc(sizeof(int*)*layer);
 		dev_UtAUs_GS_U_rowPtr = (int**)malloc(sizeof(int*)*layer);
 		dev_UtAUs_GS_U_colInd = (int**)malloc(sizeof(int*)*layer);
-		dev_UtAUs_GS_U_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
+
+		dev_UtAUs_GS_L_rowInd = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_GS_L_rowPtr = (int**)malloc(sizeof(int*)*layer);
+		dev_UtAUs_GS_L_colInd = (int**)malloc(sizeof(int*)*layer);
+
 
 		for (int l = layer - 1; l >= 0; l--)
 		{
@@ -1863,41 +2361,82 @@ public:
 				memset(temp, 0, sizeof(TYPE)*dims[l] * dims[l]);
 				for (int i = 0; i < UtAUs_nnz[l]; i++)
 					temp[dims[l] * UtAUs_colInd[l][i] + UtAUs_rowInd[l][i]] = UtAUs_Val[l][i];
-				err = cudaMalloc((void**)&dev_UtAUs_Val_Dense[l], sizeof(float)*dims[l]*dims[l]);
+				err = cudaMalloc((void**)&dev_UtAUs_Val_Dense[l], sizeof(float)*dims[l] * dims[l]);
 				err = cudaMemcpy(dev_UtAUs_Val_Dense[l], temp, sizeof(float)*dims[l] * dims[l], cudaMemcpyHostToDevice);
 			}
 			else
 			{
 				err = cudaMalloc((void**)&dev_UtAUs_rowInd[l], sizeof(int)*UtAUs_nnz[l]);
-				err = cudaMalloc((void**)&dev_UtAUs_rowPtr[l], sizeof(int)*(dims[l] + 1));
 				err = cudaMalloc((void**)&dev_UtAUs_colInd[l], sizeof(int)*UtAUs_nnz[l]);
-				err = cudaMalloc((void**)&dev_UtAUs_Val[l], sizeof(TYPE)*UtAUs_nnz[l]);
+				err = cudaMalloc((void**)&dev_UtAUs_Val[l], sizeof(TYPE)*UtAUs_nnz[l] * 144);
+				err = cudaMalloc((void**)&dev_UtAUs_Diag_addition[l], sizeof(float)*handles_num[l] * 144);
 
-				err = cudaMemcpy(dev_UtAUs_rowInd[l], UtAUs_rowInd[l], sizeof(int)*UtAUs_nnz[l], cudaMemcpyHostToDevice);
-				checkCudaErrors(cusparseXcoo2csr(cusparseHandle, dev_UtAUs_rowInd[l], UtAUs_nnz[l], dims[l], dev_UtAUs_rowPtr[l], CUSPARSE_INDEX_BASE_ZERO));
-				err = cudaMemcpy(dev_UtAUs_colInd[l], UtAUs_colInd[l], sizeof(int)*UtAUs_nnz[l], cudaMemcpyHostToDevice);
-				err = cudaMemcpy(dev_UtAUs_Val[l], UtAUs_Val[l], sizeof(TYPE)*UtAUs_nnz[l], cudaMemcpyHostToDevice);
+				dev_UtAUs_L_rowInd[l] = dev_UtAUs_rowInd[l];
+				dev_UtAUs_L_colInd[l] = dev_UtAUs_colInd[l];
+				dev_UtAUs_L_Val[l] = dev_UtAUs_Val[l];
 
-				err = cudaMalloc((void**)&dev_UtAUs_GS_U_rowInd[l], sizeof(int)*UtAUs_GS_U_nnz[l]);
-				err = cudaMalloc((void**)&dev_UtAUs_GS_U_rowPtr[l], sizeof(int)*(4*handles_num[l] + colors_num[l] + 1));
-				err = cudaMalloc((void**)&dev_UtAUs_GS_U_colInd[l], sizeof(int)*UtAUs_GS_U_nnz[l]);
-				err = cudaMalloc((void**)&dev_UtAUs_GS_U_Val[l], sizeof(int)*UtAUs_GS_U_nnz[l]);
+				dev_UtAUs_D_rowInd[l] = dev_UtAUs_rowInd[l] + UtAUs_L_nnz[l];
+				dev_UtAUs_D_colInd[l] = dev_UtAUs_colInd[l] + UtAUs_L_nnz[l];
+				dev_UtAUs_D_Val[l] = dev_UtAUs_Val[l] + UtAUs_L_nnz[l] * 144;
 
-				err = cudaMemcpy(dev_UtAUs_GS_U_rowInd[l] , UtAUs_GS_U_rowInd[l], sizeof(int)*UtAUs_GS_U_nnz[l], cudaMemcpyHostToDevice);
+				dev_UtAUs_U_rowInd[l] = dev_UtAUs_rowInd[l] + UtAUs_L_nnz[l] + UtAUs_D_nnz[l];
+				dev_UtAUs_U_colInd[l] = dev_UtAUs_colInd[l] + UtAUs_L_nnz[l] + UtAUs_D_nnz[l];
+				dev_UtAUs_U_Val[l] = dev_UtAUs_Val[l] + UtAUs_L_nnz[l] * 144 + UtAUs_D_nnz[l] * 144;
+
+
+				//L
+				err = cudaMalloc(&dev_UtAUs_GS_L_rowInd[l], sizeof(int)*UtAUs_L_nnz[l]);
+				err = cudaMalloc(&dev_UtAUs_GS_L_rowPtr[l], sizeof(int)*(handles_num[l] + colors_num[l] + 1));
+				err = cudaMalloc(&dev_UtAUs_GS_L_colInd[l], sizeof(int)*UtAUs_L_nnz[l]);
+
+				err = cudaMalloc(&dev_UtAUs_L_rowPtr[l], sizeof(int)*(handles_num[l] + 1));
+
+				err = cudaMemcpy(dev_UtAUs_GS_L_rowInd[l], UtAUs_GS_L_rowInd[l], sizeof(int)*UtAUs_L_nnz[l], cudaMemcpyHostToDevice);
+
+				for (int i = 0; i < colors_num[l] - 1; i++)
+				{
+					cuspErr = cusparseXcoo2csr(cusparseHandle, dev_UtAUs_GS_L_rowInd[l] + UtAUs_GS_L_Ptr[l][i], UtAUs_GS_L_Ptr[l][i + 1] - UtAUs_GS_L_Ptr[l][i], \
+						color_vertices_num[l][i + 2] - color_vertices_num[l][i + 1], \
+						dev_UtAUs_GS_L_rowPtr[l] + color_vertices_num[l][i + 1] - color_vertices_num[l][1] + i, CUSPARSE_INDEX_BASE_ZERO);
+
+				}
+				err = cudaMemcpy(dev_UtAUs_GS_L_colInd[l], UtAUs_GS_L_colInd[l], sizeof(int)*UtAUs_L_nnz[l], cudaMemcpyHostToDevice);
+
+
+				err = cudaMemcpy(dev_UtAUs_L_rowInd[l], UtAUs_L_rowInd[l], sizeof(int)*UtAUs_L_nnz[l], cudaMemcpyHostToDevice);
+				cusparseXcoo2csr(cusparseHandle, dev_UtAUs_L_rowInd[l], UtAUs_L_nnz[l], handles_num[l], dev_UtAUs_L_rowPtr[l], CUSPARSE_INDEX_BASE_ZERO);
+				err = cudaMemcpy(dev_UtAUs_L_colInd[l], UtAUs_L_colInd[l], sizeof(int)*UtAUs_L_nnz[l], cudaMemcpyHostToDevice);
+				err = cudaMemcpy(dev_UtAUs_L_Val[l], UtAUs_L_Val[l], sizeof(TYPE)*UtAUs_L_nnz[l] * 144, cudaMemcpyHostToDevice);
+
+				//D
+				err = cudaMalloc((void**)&dev_UtAUs_D_rowPtr[l], sizeof(int)*(handles_num[l] + 1));
+
+				err = cudaMemcpy(dev_UtAUs_D_rowInd[l], UtAUs_D_rowInd[l], sizeof(int)*UtAUs_D_nnz[l], cudaMemcpyHostToDevice);
+				cuspErr = cusparseXcoo2csr(cusparseHandle, dev_UtAUs_D_rowInd[l], handles_num[l], handles_num[l], dev_UtAUs_D_rowPtr[l], CUSPARSE_INDEX_BASE_ZERO);
+				err = cudaMemcpy(dev_UtAUs_D_colInd[l], UtAUs_D_colInd[l], sizeof(int)*UtAUs_D_nnz[l], cudaMemcpyHostToDevice);
+				err = cudaMemcpy(dev_UtAUs_D_Val[l], UtAUs_D_Val[l], sizeof(TYPE)*UtAUs_D_nnz[l] * 144, cudaMemcpyHostToDevice);
+
+				//U
+				err = cudaMalloc((void**)&dev_UtAUs_GS_U_rowInd[l], sizeof(int)*UtAUs_U_nnz[l]);
+				err = cudaMalloc((void**)&dev_UtAUs_GS_U_rowPtr[l], sizeof(int)*(handles_num[l] + colors_num[l] + 1));
+				err = cudaMalloc((void**)&dev_UtAUs_GS_U_colInd[l], sizeof(int)*UtAUs_U_nnz[l]);
+
+				err = cudaMalloc((void**)&dev_UtAUs_U_rowPtr[l], sizeof(int)*(handles_num[l] + 1));
+
+				err = cudaMemcpy(dev_UtAUs_GS_U_rowInd[l], UtAUs_GS_U_rowInd[l], sizeof(int)*UtAUs_U_nnz[l], cudaMemcpyHostToDevice);
 				for (int i = 0; i < colors_num[l] - 1; i++)
 				{
 					cuspErr = cusparseXcoo2csr(cusparseHandle, dev_UtAUs_GS_U_rowInd[l] + UtAUs_GS_U_Ptr[l][i], UtAUs_GS_U_Ptr[l][i + 1] - UtAUs_GS_U_Ptr[l][i], \
-						4 * (color_vertices_num[l][i + 1] - color_vertices_num[l][i]), dev_UtAUs_GS_U_rowPtr[l] + 4 * color_vertices_num[layer][i] + i, \
-						CUSPARSE_INDEX_BASE_ZERO);
+						color_vertices_num[l][i + 1] - color_vertices_num[l][i], dev_UtAUs_GS_U_rowPtr[l] + color_vertices_num[l][i] + i, CUSPARSE_INDEX_BASE_ZERO);
 				}
 
-				err = cudaMemcpy(dev_UtAUs_GS_U_colInd[l], UtAUs_GS_U_colInd[l], sizeof(int)*UtAUs_GS_U_nnz[l], cudaMemcpyHostToDevice);
-				err = cudaMemcpy(dev_UtAUs_GS_U_Val[l], UtAUs_GS_U_Val[l], sizeof(TYPE)*UtAUs_GS_U_nnz[l], cudaMemcpyHostToDevice);
+				err = cudaMemcpy(dev_UtAUs_GS_U_colInd[l], UtAUs_GS_U_colInd[l], sizeof(int)*UtAUs_U_nnz[l], cudaMemcpyHostToDevice);
+
+				err = cudaMemcpy(dev_UtAUs_U_rowInd[l], UtAUs_U_rowInd[l], sizeof(int)*UtAUs_U_nnz[l], cudaMemcpyHostToDevice);
+				cuspErr = cusparseXcoo2csr(cusparseHandle, dev_UtAUs_U_rowInd[l], UtAUs_U_nnz[l], handles_num[l], dev_UtAUs_U_rowPtr[l], CUSPARSE_INDEX_BASE_ZERO);
+				err = cudaMemcpy(dev_UtAUs_U_colInd[l], UtAUs_U_colInd[l], sizeof(int)*UtAUs_U_nnz[l], cudaMemcpyHostToDevice);
+				err = cudaMemcpy(dev_UtAUs_U_Val[l], UtAUs_U_Val[l], sizeof(TYPE)*UtAUs_U_nnz[l] * 144, cudaMemcpyHostToDevice);
 			}
-
-			err = cudaMalloc(&dev_UtAUs_Diag[l], sizeof(float) * 16 * handles_num[l]);
-			err = cudaMemcpy(dev_UtAUs_Diag[l], UtAUs_Diag[l], sizeof(float) * 16 * handles_num[l], cudaMemcpyHostToDevice);
-
 		}
 	}
 
@@ -1945,57 +2484,40 @@ public:
 		//	cudaErr = cudaMalloc(&dev_update_flag[l], sizeof(int)*handles_num[l]);
 
 		// precomputed diag
-		precomputed_Diag_addition = new TYPE[number * 16];
+		//precomputed_Diag_addition = new TYPE[number * 16];
 
-		for(int i=0;i<number;i++)
-			for (int dj = 0; dj < 4; dj++)
-				for (int di = 0; di < 4; di++)
-				{
-					TYPE v1 = di == 3 ? 1:X[3 * i + di];
-					TYPE v2 = dj == 3 ? 1:X[3 * i + dj];
-					precomputed_Diag_addition[i * 16 + 4 * dj + di] = v1 * v2;
-				}
+		//for (int v = 0; v < number; v++)
+		//{
+		//	int i = index2vertex[layer][v];
+		//	for (int dj = 0; dj < 4; dj++)
+		//		for (int di = 0; di < 4; di++)
+		//		{
+		//			TYPE v1 = di == 3 ? 1 : X[3 * v + di];
+		//			TYPE v2 = dj == 3 ? 1 : X[3 * v + dj];
+		//			precomputed_Diag_addition[i * 16 + 4 * dj + di] = v1 * v2;
+		//		}
+		//}
+		//cudaErr = cudaMalloc(&dev_precomputed_Diag_addition, sizeof(float)*number * 16);
+		//cudaErr = cudaMemcpy(dev_precomputed_Diag_addition, precomputed_Diag_addition, sizeof(float)*number * 16, cudaMemcpyHostToDevice);
 
-		cudaErr = cudaMalloc(&dev_precomputed_Diag_addition, sizeof(float)*number * 16);
-		cudaErr = cudaMemcpy(dev_precomputed_Diag_addition, precomputed_Diag_addition, sizeof(float)*number * 16, cudaMemcpyHostToDevice);
+		////cudaErr = cudaMalloc(&dev_MF_Diag_addition, sizeof(float)*number);
 
-		cudaErr = cudaMalloc(&dev_MF_Diag_addition, sizeof(float)*number);
-
-		dev_UtAUs_Diag_addition = (TYPE**)malloc(sizeof(TYPE*)*layer);
-		
-
-		// things to use atomic add
-		if (layer)
-		{
-			//weird part
-			int sum = 0;
-			for (int l = 0; l < layer; l++)
-				sum += handles_num[l];
-			TYPE *temp;
-			cudaErr = cudaMalloc(&temp, sizeof(TYPE) * 16 * sum);
-			sum = 0;
-			for (int l = 0; l < layer; l++)
-			{
-				//cudaErr = cudaMalloc(&dev_UtAUs_Diag_addition[l], sizeof(float) * 16 * handles_num[l]);
-				dev_UtAUs_Diag_addition[l] = temp + sum;
-				sum += handles_num[l] * 16;
-			}
-
-			where_to_update = new int[layer*number];
-			for (int i = 0; i < number; i++)
-			{
-				int now = i;
-				for (int l = layer - 1; l >= 0; l--)
-				{
-					where_to_update[i*layer + l] = vertex2index[l][handle[l + 1][now]];
-					now = handle[l + 1][now];
-				}
-			}
-			cudaErr = cudaMalloc(&dev_where_to_update, sizeof(int)*layer*number);
-			cudaErr = cudaMemcpy(dev_where_to_update, where_to_update, sizeof(int)*layer*number, cudaMemcpyHostToDevice);
-		}
-		cudaErr = cudaMalloc(&dev_handles_num, sizeof(int)*layer);
-		cudaErr = cudaMemcpy(dev_handles_num, handles_num, sizeof(int)*layer, cudaMemcpyHostToDevice);
+		//// things to use atomic add
+		//if (layer)
+		//{
+		//	dev_UtAUs_Diag_addition = (TYPE**)malloc(sizeof(TYPE*)*layer);
+		//	dev_where_to_update = (int**)malloc(sizeof(int*)*layer);
+		//	for (int l = layer; l >= 0; l--)
+		//	{
+		//		cudaMalloc(&dev_UtAUs_Diag_addition[l], sizeof(float) * 144 * handles_num[l]);
+		//		cudaMalloc(&dev_where_to_update[l], sizeof(int)*handles_num[l + 1]);
+		//		int *where_to_update = new int[handles_num[l + 1]];
+		//		for (int i = 0; i < handles_num[l + 1]; i++)
+		//			where_to_update[i] = vertex2index[l][handle[l + 1][i]];
+		//		cudaMemcpy(dev_where_to_update, where_to_update, sizeof(int)*handles_num[l + 1], cudaMemcpyHostToDevice);
+		//		delete[] where_to_update;
+		//	}
+		//}
 		
 	}
 
@@ -2125,17 +2647,28 @@ public:
 #endif
 #ifdef DEFAULT_UPDATE
 		if (l == layer)
-			cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l], dims[l], MF_nnz, alpha, descr, \
-				dev_MF_Val, dev_MF_rowPtr, dev_MF_colInd, P, &one, AP);
+		{
+			cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, number, number, MF_L_nnz, alpha, descr, \
+				dev_MF_L_Val, dev_MF_L_rowPtr, dev_MF_L_colInd, 3, P, &one, AP);
+			cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, number, number, MF_D_nnz, alpha, descr, \
+				dev_MF_D_Val, dev_MF_D_rowPtr, dev_MF_D_colInd, 3, P, &one, AP);
+			cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, number, number, MF_U_nnz, alpha, descr, \
+				dev_MF_U_Val, dev_MF_U_rowPtr, dev_MF_U_colInd, 3, P, &one, AP);
+		}
 		else
 		{
 			if (stored_as_dense[l])
 				cublasStatus = cublasSgemv(cublasHandle, CUBLAS_OP_N, dims[l], dims[l], alpha, dev_UtAUs_Val_Dense[l], dims[l], P, 1, &one, AP, 1);
 			else
-				cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l], dims[l], UtAUs_nnz[l], alpha, descr, \
-					dev_UtAUs_Val[l], dev_UtAUs_rowPtr[l], dev_UtAUs_colInd[l], P, &one, AP);
+			{
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, handles_num[l], handles_num[l], UtAUs_L_nnz[l], \
+					alpha, descr, dev_UtAUs_L_Val[l], dev_UtAUs_L_rowPtr[l], dev_UtAUs_L_colInd[l], 12, P, &one, AP);
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, handles_num[l], handles_num[l], UtAUs_D_nnz[l], \
+					alpha, descr, dev_UtAUs_D_Val[l], dev_UtAUs_D_rowPtr[l], dev_UtAUs_D_colInd[l], 12, P, &one, AP);
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, handles_num[l], handles_num[l], UtAUs_U_nnz[l], \
+					alpha, descr, dev_UtAUs_U_Val[l], dev_UtAUs_U_rowPtr[l], dev_UtAUs_U_colInd[l], 12, P, &one, AP);
+			}
 		}
-
 		Diag_Update(l, AP, alpha, P);
 #endif
 #ifdef VECTOR_UPDATE
@@ -2150,7 +2683,7 @@ public:
 #endif
 	}
 
-	void performCGIteration(int l,int max_iter,float tol)
+	void performCGIteration(int l, int max_iter, float tol)
 	{
 		cudaError_t cudaErr;
 		cusparseStatus_t cuspErr;
@@ -2159,56 +2692,53 @@ public:
 		float alpha, beta, neg_alpha;
 		float dot;
 		int k;
-		for (int dim = 0; dim < 3; dim++)
+		float *P = dev_P[l];
+		float *R = dev_R[l];
+		float *AP = dev_AP[l];
+		float *deltaX = dev_deltaX[l];
+		cublasStatus = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
+		if (r1 < EPSILON) return;
+		float r = r1;
+
+		k = 1;
+		while (r1 > tol*r && (max_iter < 0 || k <= max_iter))
 		{
-			float *P = &(dev_P[l][dims[l]*dim]);
-			float *R = &(dev_R[l][dims[l]*dim]);
-			float *AP = &(dev_AP[l][dims[l]*dim]);
-			float *deltaX = &(dev_deltaX[l][dims[l]*dim]);
-			cublasStatus = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
-			if (r1 < EPSILON) continue;
-			float r = r1;
-
-			k = 1;
-			while (r1 > tol*r && (max_iter < 0 || k <= max_iter))
+			if (k > 1)
 			{
-				if (k > 1)
-				{
-					beta = r1 / r0;
-					cublasStatus = cublasSscal(cublasHandle, dims[l], &beta, P, 1);
-					cublasStatus = cublasSaxpy(cublasHandle, dims[l], &one, R, 1, P, 1);
-				}
-				else
-				{
-					cublasStatus = cublasScopy(cublasHandle, dims[l], R, 1, P, 1);
-				}
-				//if (l == layer)
-				//	cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l], dims[l], MF_nnz, &one, descr, dev_MF_Val, dev_MF_rowPtr, dev_MF_colInd, P, &zero, AP);
-				//else
-				//{
-				//	cublasStatus = cublasSgemv(cublasHandle, CUBLAS_OP_N, dims[l], dims[l], &one, dev_UtAUs_Val_Dense[l], dims[l], P, 1, &zero, AP, 1);
-				//}
-
-				//Diag_Update(l, AP, &one, P);
-				cudaErr = cudaMemset(AP, 0, sizeof(float)*dims[l]); // this should be set by once
-
-				calculateAP(l, AP, &one, P);
-
-				cublasStatus = cublasSdot(cublasHandle, dims[l], P, 1, AP, 1, &dot);
-				alpha = r1 / dot;
-
-				cublasStatus = cublasSaxpy(cublasHandle, dims[l], &alpha, P, 1, deltaX, 1);
-				neg_alpha = -alpha;
-				cublasStatus = cublasSaxpy(cublasHandle, dims[l], &neg_alpha, AP, 1, R, 1);
-
-				r0 = r1;
-				cublasStatus = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
-				cudaDeviceSynchronize();
-				//printf("iteration = %3d, residual = %e\n", k, sqrt(r1));
-				k++;
+				beta = r1 / r0;
+				cublasStatus = cublasSscal(cublasHandle, dims[l], &beta, P, 1);
+				cublasStatus = cublasSaxpy(cublasHandle, dims[l], &one, R, 1, P, 1);
 			}
+			else
+			{
+				cublasStatus = cublasScopy(cublasHandle, dims[l], R, 1, P, 1);
+			}
+			//if (l == layer)
+			//	cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l], dims[l], MF_nnz, &one, descr, dev_MF_Val, dev_MF_rowPtr, dev_MF_colInd, P, &zero, AP);
+			//else
+			//{
+			//	cublasStatus = cublasSgemv(cublasHandle, CUBLAS_OP_N, dims[l], dims[l], &one, dev_UtAUs_Val_Dense[l], dims[l], P, 1, &zero, AP, 1);
+			//}
+
+			//Diag_Update(l, AP, &one, P);
+			cudaErr = cudaMemset(AP, 0, sizeof(float)*dims[l]); // this should be set by once
+			calculateAP(l, AP, &one, P);
+
+			cublasStatus = cublasSdot(cublasHandle, dims[l], P, 1, AP, 1, &dot);
+			alpha = r1 / dot;
+
+			cublasStatus = cublasSaxpy(cublasHandle, dims[l], &alpha, P, 1, deltaX, 1);
+			neg_alpha = -alpha;
+			cublasStatus = cublasSaxpy(cublasHandle, dims[l], &neg_alpha, AP, 1, R, 1);
+
+			r0 = r1;
+			cublasStatus = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
+			//cudaDeviceSynchronize();
+			//printf("iteration = %3d, residual = %e\n", k, sqrt(r1));
+			k++;
 		}
 	}
+
 
 	void performGaussSeidelIteration(int l, int max_iter, float tol)
 	{
@@ -2220,87 +2750,223 @@ public:
 		{
 			//printf("this method is not supposed to run on finest level only.\n");
 			//return;
-			for (int dim = 0; dim < 3; dim++)
-			{
-				float *P = &(dev_P[l][dims[l] * dim]);
-				float *R = &(dev_R[l][dims[l] * dim]);
-				float *deltaX = &(dev_deltaX[l][dims[l] * dim]);
-				for (int k = 0; k < max_iter; k++)
-				{
-					//cuspErr = cusparseScsrsv_solve(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, number, &one, descrU, \
-					//	dev_MF_U_Val, dev_MF_U_rowPtr, dev_MF_U_colInd, infoU, R, P);
 
-					cublasErr = cublasScopy(cublasHandle, dims[l], R, 1, dev_temp_X[l], 1);
-					for (int c = colors_num[l] - 1; c >= 0; c--)
+			float *P = dev_P[l];
+			float *R = dev_R[l];
+			float *B = dev_B[l];
+			float *deltaX = dev_deltaX[l];
+			for (int k = 0; k < max_iter; k++)
+			{
+				cublasErr = cublasScopy(cublasHandle, dims[l], B, 1, dev_temp_X[l], 1);
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, number, number, MF_L_nnz, &minus_one, descr, \
+					dev_MF_L_Val, dev_MF_L_rowPtr, dev_MF_L_colInd, 3, deltaX, &one, dev_temp_X[l]);
+
+				cudaErr = cudaMemset(deltaX, 0, sizeof(float)*dims[l]);
+
+				for (int c = colors_num[l] - 1; c >= 0; c--)
+				{
+					int base = color_vertices_num[l][c];
+					Colored_GS_MF_Kernel << <(color_vertices_num[l][c + 1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> > \
+						(deltaX, dev_MF_D_Val, dev_MF_Diag_addition, dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+					if (c)
 					{
-						int base = color_vertices_num[l][c];
-						Colored_GS_MF_Kernel << <(color_vertices_num[l][c+1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> > (P, dev_MF_Diag, dev_MF_Diag_addition, dev_temp_X[l], base, color_vertices_num[l][c+1] - base);
-						cudaErr = cudaGetLastError();
-						if (c)
-						{
-							cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, color_vertices_num[l][c] - color_vertices_num[l][c - 1], \
-								color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c], MF_GS_U_Ptr[c] - MF_GS_U_Ptr[c-1], &minus_one, descr, \
-								dev_MF_GS_U_Val + MF_GS_U_Ptr[c - 1], dev_MF_GS_U_rowPtr + color_vertices_num[l][c - 1] + c - 1, dev_MF_GS_U_colInd + MF_GS_U_Ptr[c - 1], \
-								P + base, &one, dev_temp_X[l] + color_vertices_num[l][c - 1]);
-						}
-						
+						cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, color_vertices_num[l][c] - color_vertices_num[l][c - 1], \
+							color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c], MF_GS_U_Ptr[c] - MF_GS_U_Ptr[c - 1], &minus_one, descr, \
+							dev_MF_U_Val + MF_GS_U_Ptr[c - 1] * 9, dev_MF_GS_U_rowPtr + color_vertices_num[l][c - 1] + c - 1, dev_MF_GS_U_colInd + MF_GS_U_Ptr[c - 1], \
+							3, deltaX + 3 * base, &one, dev_temp_X[l] + 3 * color_vertices_num[l][c - 1]);
 					}
-					cublasErr = cublasSaxpy(cublasHandle, dims[l], &one, P, 1, deltaX, 1);
-					calculateAP(l, R, &minus_one, P);
 				}
-#ifdef Test
-				cublasErr = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
-				printf("%d: %f\n", dim, r1);
-#endif
+
+				cublasErr = cublasScopy(cublasHandle, dims[l], B, 1, dev_temp_X[l], 1);
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, number, number, MF_U_nnz, &minus_one, descr, \
+					dev_MF_U_Val, dev_MF_U_rowPtr, dev_MF_U_colInd, 3, deltaX, &one, dev_temp_X[l]);
+
+				cudaErr = cudaMemset(deltaX, 0, sizeof(float)*dims[l]);
+
+				for (int c = 0; c < colors_num[l]; c++)
+				{
+					int base = color_vertices_num[l][c];
+					Colored_GS_MF_Kernel << <(color_vertices_num[l][c + 1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> > \
+						(deltaX, dev_MF_D_Val, dev_MF_Diag_addition, dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+					if (c < colors_num[l] - 1)
+					{
+						cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, \
+							color_vertices_num[l][c + 2] - color_vertices_num[l][c + 1], color_vertices_num[l][c + 1], MF_GS_L_Ptr[c + 1] - MF_GS_L_Ptr[c], \
+							&minus_one, descr, dev_MF_L_Val + MF_GS_L_Ptr[c] * 9, dev_MF_GS_L_rowPtr + color_vertices_num[l][c + 1] - color_vertices_num[l][1] + c, \
+							dev_MF_GS_L_colInd + MF_GS_L_Ptr[c], 3, deltaX, &one, dev_temp_X[l] + 3 * color_vertices_num[l][c + 1]);
+					}
+				}
 			}
-#ifdef Test
-			printf("--------------------\n");
-#endif
+			cublasScopy(cublasHandle, dims[l], B, 1, R, 1);
+			calculateAP(l, R, &minus_one, deltaX);
 		}
 		else
 		{
-			for (int dim = 0; dim < 3; dim++)
+			float *P = dev_P[l];
+			float *R = dev_R[l];
+			float *B = dev_B[l];
+			float *deltaX = dev_deltaX[l];
+			for (int k = 0; k < max_iter; k++)
 			{
-				float *P = &(dev_P[l][dims[l] * dim]);
-				float *R = &(dev_R[l][dims[l] * dim]);
-				float *deltaX = &(dev_deltaX[l][dims[l] * dim]);
-				for (int k = 0; k < max_iter; k++)
-				{
-					cublasErr = cublasScopy(cublasHandle, dims[l], R, 1, dev_temp_X[l], 1);
-					cudaErr = cudaMemset(P, 0, sizeof(float)*dims[l]);
-					for (int c = colors_num[l] - 1; c >= 0; c--)
-					{
-						int base = color_vertices_num[l][c];
-						Colored_GS_UtAU_Kernel << <(color_vertices_num[l][c + 1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> > (P, dev_UtAUs_Diag[l], dev_UtAUs_Diag_addition[l], dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
-						cudaErr = cudaGetLastError();
-						if (c)
-						{
-							if (stored_as_dense[l])
-								cublasErr = cublasSgemv(cublasHandle, CUBLAS_OP_N, 4 * (color_vertices_num[l][c] - color_vertices_num[l][c - 1]), \
-									4 * (color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c]), &minus_one, \
-									dev_UtAUs_Val_Dense[l] + dims[l] * 4 * color_vertices_num[l][c] + 4 * color_vertices_num[l][c - 1], dims[l], \
-									P + 4 * base, 1, &one, dev_temp_X[l] + 4 * color_vertices_num[l][c - 1], 1);
-							else
-								cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, 4 * (color_vertices_num[l][c] - color_vertices_num[l][c - 1]), \
-									4 * (color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c]), UtAUs_GS_U_Ptr[l][c] - UtAUs_GS_U_Ptr[l][c - 1], &minus_one, descr, \
-									dev_UtAUs_GS_U_Val[l] + 4 * UtAUs_GS_U_Ptr[l][c - 1], dev_UtAUs_GS_U_rowPtr[l] + 4 * color_vertices_num[l][c - 1] + c - 1, dev_UtAUs_GS_U_colInd[l] + UtAUs_GS_U_Ptr[l][c - 1], \
-									P + 4 * base, &one, dev_temp_X[l] + 4 * color_vertices_num[l][c - 1]);
-						}
+				cublasErr = cublasScopy(cublasHandle, dims[l], B, 1, dev_temp_X[l], 1);
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, handles_num[l], handles_num[l], \
+					UtAUs_L_nnz[l], &minus_one, descr, dev_UtAUs_L_Val[l], dev_UtAUs_L_rowPtr[l], dev_UtAUs_L_colInd[l], 12, deltaX, &one, dev_temp_X[l]);
 
+				cudaErr = cudaMemset(deltaX, 0, sizeof(float)*dims[l]);
+				for (int c = colors_num[l] - 1; c >= 0; c--)
+				{
+					int base = color_vertices_num[l][c];
+
+					//Colored_GS_UtAU_Kernel << <(color_vertices_num[l][c + 1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> >\
+							(deltaX, dev_UtAUs_D_Val[l], dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+					Mogai_Kernel << <color_vertices_num[l][c + 1] - base, 12 >> > \
+						(deltaX, dev_UtAUs_D_Val[l], dev_UtAUs_Diag_addition[l], dev_temp_X[l], base);
+					//Mogai_2_Kernel << <(color_vertices_num[l][c + 1] - base + 1) / 2, 24 >> > \
+							(deltaX, dev_UtAUs_D_Val[l], dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+
+					if (c)
+					{
+						if (stored_as_dense[l])
+							cublasErr = cublasSgemv(cublasHandle, CUBLAS_OP_N, 4 * (color_vertices_num[l][c] - color_vertices_num[l][c - 1]), \
+								4 * (color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c]), &minus_one, \
+								dev_UtAUs_Val_Dense[l] + dims[l] * 4 * color_vertices_num[l][c] + 4 * color_vertices_num[l][c - 1], dims[l], \
+								P + 4 * base, 1, &one, dev_temp_X[l] + 4 * color_vertices_num[l][c - 1], 1);
+						else
+							cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, color_vertices_num[l][c] - color_vertices_num[l][c - 1], \
+								color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c], UtAUs_GS_U_Ptr[l][c] - UtAUs_GS_U_Ptr[l][c - 1], &minus_one, descr, \
+								dev_UtAUs_U_Val[l] + 144 * UtAUs_GS_U_Ptr[l][c - 1], dev_UtAUs_GS_U_rowPtr[l] + color_vertices_num[l][c - 1] + c - 1, dev_UtAUs_GS_U_colInd[l] + UtAUs_GS_U_Ptr[l][c - 1], \
+								12, deltaX + 12 * base, &one, dev_temp_X[l] + 12 * color_vertices_num[l][c - 1]);
 					}
-					cublasErr = cublasSaxpy(cublasHandle, dims[l], &one, P, 1, deltaX, 1);
-					calculateAP(l, R, &minus_one, P);
+
 				}
-#ifdef Test
-				cublasErr = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
-				printf("%d: %f\n", dims, r1);
-#endif
+
+				cublasErr = cublasScopy(cublasHandle, dims[l], B, 1, dev_temp_X[l], 1);
+				cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, handles_num[l], handles_num[l], \
+					UtAUs_U_nnz[l], &minus_one, descr, dev_UtAUs_U_Val[l], dev_UtAUs_U_rowPtr[l], dev_UtAUs_U_colInd[l], 12, deltaX, &one, dev_temp_X[l]);
+
+				cudaErr = cudaMemset(deltaX, 0, sizeof(float)*dims[l]);
+				for (int c = 0; c < colors_num[l]; c++)
+				{
+					int base = color_vertices_num[l][c];
+					//Colored_GS_UtAU_Kernel << <(color_vertices_num[l][c + 1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> >\
+							(deltaX, dev_UtAUs_D_Val[l], dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+					Mogai_Kernel << <color_vertices_num[l][c + 1] - base, 12 >> > \
+						(deltaX, dev_UtAUs_D_Val[l], dev_UtAUs_Diag_addition[l], dev_temp_X[l], base);
+					//Mogai_2_Kernel << <(color_vertices_num[l][c + 1] - base + 1) / 2, 24 >> > \
+							(deltaX, dev_UtAUs_D_Val[l], dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+					if (c < colors_num[l] - 1)
+					{
+						if (stored_as_dense[l])
+							cublasErr = cublasSgemv(cublasHandle, CUBLAS_OP_N, 4 * (color_vertices_num[l][c] - color_vertices_num[l][c - 1]), \
+								4 * (color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c]), &minus_one, \
+								dev_UtAUs_Val_Dense[l] + dims[l] * 4 * color_vertices_num[l][c] + 4 * color_vertices_num[l][c - 1], dims[l], \
+								P + 4 * base, 1, &one, dev_temp_X[l] + 4 * color_vertices_num[l][c - 1], 1);
+						else
+							cuspErr = cusparseSbsrmv(cusparseHandle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, color_vertices_num[l][c + 2] - color_vertices_num[l][c + 1], \
+								color_vertices_num[l][c + 1], UtAUs_GS_L_Ptr[l][c + 1] - UtAUs_GS_L_Ptr[l][c], &minus_one, descr, \
+								dev_UtAUs_L_Val[l] + 144 * UtAUs_GS_L_Ptr[l][c], dev_UtAUs_GS_L_rowPtr[l] + color_vertices_num[l][c + 1] - color_vertices_num[l][1] + c, \
+								dev_UtAUs_GS_L_colInd[l] + UtAUs_GS_L_Ptr[l][c], 12, deltaX, &one, dev_temp_X[l] + 12 * color_vertices_num[l][c + 1]);
+					}
+
+				}
+
 			}
-#ifdef Test
-			printf("--------------------\n");
-#endif
+			cublasScopy(cublasHandle, dims[l], B, 1, R, 1);
+			calculateAP(l, R, &minus_one, deltaX);
 		}
 	}
+
+//	void performGaussSeidelIteration(int l, int max_iter, float tol)
+//	{
+//		cudaError_t cudaErr;
+//		cusparseStatus_t cuspErr;
+//		cublasStatus_t cublasErr;
+//		float r1;
+//		if (l == layer)
+//		{
+//			//printf("this method is not supposed to run on finest level only.\n");
+//			//return;
+//			for (int dim = 0; dim < 3; dim++)
+//			{
+//				float *P = &(dev_P[l][dims[l] * dim]);
+//				float *R = &(dev_R[l][dims[l] * dim]);
+//				float *deltaX = &(dev_deltaX[l][dims[l] * dim]);
+//				for (int k = 0; k < max_iter; k++)
+//				{
+//					//cuspErr = cusparseScsrsv_solve(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, number, &one, descrU, \
+//					//	dev_MF_U_Val, dev_MF_U_rowPtr, dev_MF_U_colInd, infoU, R, P);
+//
+//					cublasErr = cublasScopy(cublasHandle, dims[l], R, 1, dev_temp_X[l], 1);
+//					for (int c = colors_num[l] - 1; c >= 0; c--)
+//					{
+//						int base = color_vertices_num[l][c];
+//						Colored_GS_MF_Kernel << <(color_vertices_num[l][c+1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> > (P, dev_MF_Diag, dev_MF_Diag_addition, dev_temp_X[l], base, color_vertices_num[l][c+1] - base);
+//						cudaErr = cudaGetLastError();
+//						if (c)
+//						{
+//							cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, color_vertices_num[l][c] - color_vertices_num[l][c - 1], \
+//								color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c], MF_GS_U_Ptr[c] - MF_GS_U_Ptr[c-1], &minus_one, descr, \
+//								dev_MF_GS_U_Val + MF_GS_U_Ptr[c - 1], dev_MF_GS_U_rowPtr + color_vertices_num[l][c - 1] + c - 1, dev_MF_GS_U_colInd + MF_GS_U_Ptr[c - 1], \
+//								P + base, &one, dev_temp_X[l] + color_vertices_num[l][c - 1]);
+//						}
+//						
+//					}
+//					cublasErr = cublasSaxpy(cublasHandle, dims[l], &one, P, 1, deltaX, 1);
+//					calculateAP(l, R, &minus_one, P);
+//				}
+//#ifdef Test
+//				cublasErr = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
+//				printf("%d: %f\n", dim, r1);
+//#endif
+//			}
+//#ifdef Test
+//			printf("--------------------\n");
+//#endif
+//		}
+//		else
+//		{
+//			for (int dim = 0; dim < 3; dim++)
+//			{
+//				float *P = &(dev_P[l][dims[l] * dim]);
+//				float *R = &(dev_R[l][dims[l] * dim]);
+//				float *deltaX = &(dev_deltaX[l][dims[l] * dim]);
+//				for (int k = 0; k < max_iter; k++)
+//				{
+//					cublasErr = cublasScopy(cublasHandle, dims[l], R, 1, dev_temp_X[l], 1);
+//					cudaErr = cudaMemset(P, 0, sizeof(float)*dims[l]);
+//					for (int c = colors_num[l] - 1; c >= 0; c--)
+//					{
+//						int base = color_vertices_num[l][c];
+//						Colored_GS_UtAU_Kernel << <(color_vertices_num[l][c + 1] - base + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock >> > (P, dev_UtAUs_Diag[l], dev_UtAUs_Diag_addition[l], dev_temp_X[l], base, color_vertices_num[l][c + 1] - base);
+//						cudaErr = cudaGetLastError();
+//						if (c)
+//						{
+//							if (stored_as_dense[l])
+//								cublasErr = cublasSgemv(cublasHandle, CUBLAS_OP_N, 4 * (color_vertices_num[l][c] - color_vertices_num[l][c - 1]), \
+//									4 * (color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c]), &minus_one, \
+//									dev_UtAUs_Val_Dense[l] + dims[l] * 4 * color_vertices_num[l][c] + 4 * color_vertices_num[l][c - 1], dims[l], \
+//									P + 4 * base, 1, &one, dev_temp_X[l] + 4 * color_vertices_num[l][c - 1], 1);
+//							else
+//								cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, 4 * (color_vertices_num[l][c] - color_vertices_num[l][c - 1]), \
+//									4 * (color_vertices_num[l][colors_num[l]] - color_vertices_num[l][c]), UtAUs_GS_U_Ptr[l][c] - UtAUs_GS_U_Ptr[l][c - 1], &minus_one, descr, \
+//									dev_UtAUs_GS_U_Val[l] + 4 * UtAUs_GS_U_Ptr[l][c - 1], dev_UtAUs_GS_U_rowPtr[l] + 4 * color_vertices_num[l][c - 1] + c - 1, dev_UtAUs_GS_U_colInd[l] + UtAUs_GS_U_Ptr[l][c - 1], \
+//									P + 4 * base, &one, dev_temp_X[l] + 4 * color_vertices_num[l][c - 1]);
+//						}
+//
+//					}
+//					cublasErr = cublasSaxpy(cublasHandle, dims[l], &one, P, 1, deltaX, 1);
+//					calculateAP(l, R, &minus_one, P);
+//				}
+//#ifdef Test
+//				cublasErr = cublasSdot(cublasHandle, dims[l], R, 1, R, 1, &r1);
+//				printf("%d: %f\n", dims, r1);
+//#endif
+//			}
+//#ifdef Test
+//			printf("--------------------\n");
+//#endif
+//		}
+//	}
 
 	void downSample(int& l)
 	{
@@ -2312,16 +2978,14 @@ public:
 		cudaError_t cudaErr;
 		cusparseStatus_t cuspErr;
 		cublasStatus_t cublasStatus;
-		for (int dim = 0; dim < 3; dim++)
-		{
-			float *now_R = &(dev_R[l][dim*dims[l]]);
-			float *down_R = &(dev_R[l - 1][dim*dims[l - 1]]);
-			//cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_TRANSPOSE, dims[l], dims[l-1], \
-				Us_nnz[l - 1], &one, descr, dev_Us_Val[l - 1], dev_Us_rowPtr[l - 1], dev_Us_colInd[l - 1], now_R, &zero, down_R);
-			cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l - 1], dims[l], \
-				Us_nnz[l - 1], &one, descr, dev_Uts_Val[l - 1], dev_Uts_rowPtr[l - 1], dev_Uts_colInd[l - 1], now_R, &zero, down_R);
-		}
-		cudaErr = cudaMemset(dev_deltaX[l - 1], 0, sizeof(float) * 3 * dims[l - 1]);
+
+		cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l - 1], dims[l], \
+			Us_nnz[l - 1], &one, descr, dev_Uts_Val[l - 1], dev_Uts_rowPtr[l - 1], dev_Uts_colInd[l - 1], dev_R[l], &zero, dev_B[l - 1]);
+
+		cublasScopy(cublasHandle, dims[l - 1], dev_B[l - 1], 1, dev_R[l - 1], 1);
+
+		cudaErr = cudaMemset(dev_deltaX[l - 1], 0, sizeof(float) * dims[l - 1]);
+
 		l--;
 	}
 
@@ -2335,20 +2999,14 @@ public:
 		cudaError_t cudaErr;
 		cusparseStatus_t cuspErr;
 		cublasStatus_t cublasStatus;
-		for (int dim = 0; dim < 3; dim++)
-		{
-			float *up_temp_X = &(dev_temp_X[l + 1][dim*dims[l + 1]]);
-			float *now_deltaX = &(dev_deltaX[l][dim*dims[l]]);
-			cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l + 1], dims[l], \
-				Us_nnz[l], &one, descr, dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], now_deltaX, &zero, up_temp_X);
-		}
-		cublasStatus = cublasSaxpy(cublasHandle, dims[l + 1] * 3, &one, dev_temp_X[l + 1], 1, dev_deltaX[l + 1], 1);
-		for (int dim = 0; dim < 3; dim++)
-		{
-			float *up_temp_X = &(dev_temp_X[l + 1][dim*dims[l + 1]]);
-			float *up_R = &(dev_R[l + 1][dim*dims[l + 1]]);
-			calculateAP(l + 1, up_R, &minus_one, up_temp_X);
-		}
+
+		cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l + 1], dims[l], \
+			Us_nnz[l], &one, descr, dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], dev_deltaX[l], &zero, dev_temp_X[l + 1]);
+
+		cublasStatus = cublasSaxpy(cublasHandle, dims[l + 1], &one, dev_temp_X[l + 1], 1, dev_deltaX[l + 1], 1);
+
+		calculateAP(l + 1, dev_R[l + 1], &minus_one, dev_temp_X[l + 1]);
+
 		l++;
 	}
 
@@ -2374,22 +3032,27 @@ public:
 		TIMER timer;
 
 		float now_time = 0;
-		
+
 		float g_norm;
 
 		// Step 0: Set up Diag data
 		Fixed_Update_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_X, dev_collision_fixed, dev_fixed, dev_more_fixed, dev_fixed_X, number, dir[0], dir[1], dir[2]);
 
-		if (layer)
-		{
-			int sum = 0;
-			for (int l = 0; l < layer; l++)
-				sum += handles_num[l] * 16;
-			cudaErr = cudaMemset(*dev_UtAUs_Diag_addition, 0, sizeof(float)*sum);
-		}
-		cudaErr = cudaMemset(dev_MF_Diag_addition, 0, sizeof(float)*number);
+		cudaErr = cudaMemset(dev_MF_Diag_addition, 0, sizeof(float) * 9 * number);
 		Diag_Update_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_MF_Diag_addition, dev_more_fixed, dev_collision_fixed, dev_vertex2index[layer], control_mag, \
 			collision_mag, dev_where_to_update, dev_precomputed_Diag_addition, *dev_UtAUs_Diag_addition, dev_handles_num, number, layer);
+
+		for (int l = layer - 1; l >= 0; l--)
+		{
+			int n = handles_num[l + 1];
+			cudaErr = cudaMemset(dev_UtAUs_Diag_addition[l], 0, sizeof(float) * 144 * handles_num[l]);
+			if (l == layer - 1)
+				UtAUs_Diag_Update_First_Path_Kernel << <(n * 9 + Reduction_threadsPerBlock - 1) / Reduction_threadsPerBlock, Reduction_threadsPerBlock * 16 >> > \
+				(dev_UtAUs_Diag_addition[l], dev_MF_Diag_addition, dev_UtAUs_precomputed_4x4[l], dev_UtAUs_update_offset[l], n * 9);
+			else
+				UtAUs_Diag_Update_Second_Path_Kernel << <(n + UtAUs_threadPerBlock - 1) / UtAUs_threadPerBlock, dim3(144, UtAUs_threadPerBlock) >> > \
+				(dev_UtAUs_Diag_addition[l], dev_UtAUs_Diag_addition[l + 1], dev_UtAUs_update_offset[l], n);
+		}
 
 		for (int s = 0; s < sub_step; s++)
 		{
@@ -2411,23 +3074,23 @@ public:
 				Tet_Constraint_Kernel << <tet_blocksPerGrid, tet_threadsPerBlock >> > (dev_X, dev_Tet, dev_inv_Dm, dev_Vol, dev_Tet_Temp, elasticity, tet_number, l);
 				cudaErr = cudaGetLastError();
 
-				cudaErr = cudaMemset(dev_R[layer], 0, sizeof(float) * 3 * dims[layer]);
-				Energy_Gradient_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_R[layer], dev_Tet_Temp, dev_VTT, dev_vtt_num, dev_fixed, dev_more_fixed, \
+				cudaErr = cudaMemset(dev_B[layer], 0, sizeof(float) * dims[layer]);
+				Energy_Gradient_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_B[layer], dev_Tet_Temp, dev_VTT, dev_vtt_num, dev_fixed, dev_more_fixed, \
 					dev_collision_fixed, dev_fixed_X, dev_X, dev_vertex2index[layer], control_mag, collision_mag, number);
-				Inertia_Gradient_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_R[layer], dev_inertia_X, dev_X, dev_vertex2index[layer], dev_M, 1.0 / t, number);
-	
-				cudaErr = cudaGetLastError();
+				Inertia_Gradient_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_B[layer], dev_inertia_X, dev_X, dev_vertex2index[layer], dev_M, 1.0 / t, number);
+
+				cudaErr = cudaMemcpy(dev_R[layer], dev_B[layer], sizeof(float)*dims[layer], cudaMemcpyDeviceToDevice);
 #ifdef BENCHMARK
 				cublasStatus = cublasSdot(cublasHandle, 3 * number, dev_R[layer], 1, dev_R[layer], 1, &g_norm);
 				fprintf(benchmark, "%f %f\n", timer.Get_Time(), g_norm);
 #endif
 
-				cudaErr = cudaMemset(dev_deltaX[layer], 0, sizeof(float) * 3 * dims[layer]);
+				cudaErr = cudaMemset(dev_deltaX[layer], 0, sizeof(float) * dims[layer]);
 
 				int now_Layer = layer;
 #ifdef SETTING1
-				//performGaussSeidelIteration(now_Layer, 30, tol, false);
-				performGaussSeidelIteration(now_Layer, 30, tol);
+				//performCGIteration(now_Layer, 30, tol);
+				performGaussSeidelIteration(now_Layer, 5, tol);
 #endif
 #ifdef SETTING2
 
@@ -2445,32 +3108,51 @@ public:
 
 				//FMG
 
+				//downSample(now_Layer);
+
+				//performGaussSeidelIteration(now_Layer, 5, tol);
+
+				//upSample(now_Layer);
+
+				//performGaussSeidelIteration(now_Layer, 5, tol);
+
+				//performCGIteration(now_Layer, 10, tol);
+
+				//downSample(now_Layer);
+
+				//performCGIteration(now_Layer, 10, tol);
+
+				//upSample(now_Layer);
+
+				//performCGIteration(now_Layer, 10, tol);
+
+				performGaussSeidelIteration(now_Layer, 2, tol);
+
 				downSample(now_Layer);
 
-				performGaussSeidelIteration(now_Layer, 5, tol);
+				performGaussSeidelIteration(now_Layer, 2, tol);
 
 				upSample(now_Layer);
 
-				performGaussSeidelIteration(now_Layer, 5, tol);
-
+				performGaussSeidelIteration(now_Layer, 2, tol);
 #endif
 #ifdef SETTING3
 				//V-cycle
 
 				//performGaussSeidelIteration(now_Layer, 3, tol);
-	
+
 				//downSample(now_Layer);
-		
-				//performGaussSeidelIteration(now_Layer, 3, tol);
-		
-				//downSample(now_Layer);
-			
+
 				//performGaussSeidelIteration(now_Layer, 3, tol);
 
 				//downSample(now_Layer);
 
 				//performGaussSeidelIteration(now_Layer, 3, tol);
-			
+
+				//downSample(now_Layer);
+
+				//performGaussSeidelIteration(now_Layer, 3, tol);
+
 				//upSample(now_Layer);			
 
 				//performGaussSeidelIteration(now_Layer, 3, tol);
@@ -2482,6 +3164,24 @@ public:
 				//upSample(now_Layer);
 
 				//performGaussSeidelIteration(now_Layer, 3, tol);
+
+				performCGIteration(now_Layer, 5, tol);
+
+				downSample(now_Layer);
+
+				performCGIteration(now_Layer, 5, tol);
+
+				downSample(now_Layer);
+
+				performCGIteration(now_Layer, 5, tol);
+
+				upSample(now_Layer);
+
+				performCGIteration(now_Layer, 5, tol);
+
+				upSample(now_Layer);
+
+				performCGIteration(now_Layer, 5, tol);
 
 				//FMG
 
@@ -2529,64 +3229,92 @@ public:
 
 				//FMG-mogai
 
-				if ((l & 3) == 0)
-				{
-					downSample(now_Layer);
-					downSample(now_Layer);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					upSample(now_Layer);
-				}
-				if ((l & 3) == 1)
-				{
-					downSample(now_Layer);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-				}
+				//if ((l & 3) == 0)
+				//{
+				//	downSample(now_Layer);
+				//	downSample(now_Layer);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	upSample(now_Layer);
+				//}
+				//if ((l & 3) == 1)
+				//{
+				//	downSample(now_Layer);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//}
 
-				if ((l & 3) == 2)
-				{
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-				}
+				//if ((l & 3) == 2)
+				//{
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//}
 
-				if ((l & 3) == 3)
-				{
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					downSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-					upSample(now_Layer);
-					performGaussSeidelIteration(now_Layer, 3, tol);
-				}
+				//if ((l & 3) == 3)
+				//{
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	downSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//	upSample(now_Layer);
+				//	performGaussSeidelIteration(now_Layer, 3, tol);
+				//}
 
+#endif
+
+#ifdef SETTING4
+				performGaussSeidelIteration(now_Layer, 1, tol);
+
+				downSample(now_Layer);
+
+				performGaussSeidelIteration(now_Layer, 1, tol);
+
+				downSample(now_Layer);
+
+				performGaussSeidelIteration(now_Layer, 1, tol);
+
+				downSample(now_Layer);
+
+				performGaussSeidelIteration(now_Layer, 1, tol);
+
+				upSample(now_Layer);
+
+				performGaussSeidelIteration(now_Layer, 1, tol);
+
+				upSample(now_Layer);
+
+				performGaussSeidelIteration(now_Layer, 1, tol);
+
+				upSample(now_Layer);
+
+				performGaussSeidelIteration(now_Layer, 1, tol);
 #endif
 
 				Update_DeltaX_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_X, dev_deltaX[layer], dev_index2vertex[layer], number);

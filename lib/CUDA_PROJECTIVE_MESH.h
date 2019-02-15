@@ -26,8 +26,8 @@
 ///////////////////////////////////////////////////////////////////////////////////////////
 //  Class CUDA_PROJECTIVE_TET_MESH
 ///////////////////////////////////////////////////////////////////////////////////////////
-#ifndef	__WHMIN_CUDA_PROJECTIVE_TET_MESH_H__
-#define __WHMIN_CUDA_PROJECTIVE_TET_MESH_H__
+#ifndef	__WHMIN_CUDA_PROJECTIVE_MESH_H__
+#define __WHMIN_CUDA_PROJECTIVE_MESH_H__
 #include "DYNAMIC_MESH.h"
 #include "TIMER.h"
 #include <cusparse.h>
