@@ -365,16 +365,19 @@ __global__ void Mogai_Kernel(float *X, const float *UtAU_Diag_Val, const float *
 	}
 }
 
-__device__ void collision_detection(const float *X, float *fixed_X,int *fixed)
+__device__ void collision_detection(const float *X, float *fixed_X,float *normal,int *fixed)
 {
 	*fixed = 0;
-	//if (X[1] < -0.5)
-	//{
-	//	*fixed = 1;
-	//	fixed_X[0] = X[0];
-	//	fixed_X[1] = -0.5;
-	//	fixed_X[2] = X[2];
-	//}
+	if (X[1] < -0.5)
+	{
+		*fixed = 1;
+		fixed_X[0] = X[0];
+		fixed_X[1] = -0.5;
+		fixed_X[2] = X[2];
+		normal[0] = 0;
+		normal[1] = 1;
+		normal[2] = 0;
+	}
 }
 
 
@@ -408,12 +411,12 @@ __global__ void Control_Kernel(float* X, int *more_fixed, const int number, cons
 ///////////////////////////////////////////////////////////////////////////////////////////
 //  Basic update kernel
 ///////////////////////////////////////////////////////////////////////////////////////////
-__global__ void Fixed_Update_Kernel(float* X, int *collision_fixed, const int *fixed, const int *more_fixed, float *fixed_X, const int number, const float dir_x, const float dir_y, const float dir_z)
+__global__ void Fixed_Update_Kernel(float* X, int *collision_fixed, float *collision_normal, const int *fixed, const int *more_fixed, float *fixed_X, const int number, const float dir_x, const float dir_y, const float dir_z)
 {
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
 	if (i >= number)	return;
 
-	collision_detection(X + i * 3, fixed_X + i * 3, collision_fixed + i);
+	collision_detection(X + i * 3, fixed_X + i * 3, collision_normal + i * 3, collision_fixed + i);
 
 	if (fixed[i] == 0 && collision_fixed[i] == 0 && more_fixed[i] != 0)
 	{
@@ -508,17 +511,28 @@ __global__ void Tet_Constraint_Kernel(const float* X, const int* Tet, const floa
 //  Constraint Kernel 0
 ///////////////////////////////////////////////////////////////////////////////////////////
 __global__ void Diag_Update_Kernel(float* MF_Diag, const int* more_fixed,const int *collision_fixed, const int *vertex2index, const float control_mag,\
-	const float collision_mag, const int *where_to_update, const float *precomputed_diag,float *UtAUs_diag, const int *handles_num, const int number,const int layer)
+	const float collision_mag, const float *collision_normal, const int number,const int layer)
 {
 	int v = blockDim.x * blockIdx.x + threadIdx.x;
 	if (v >= number)	return;
 	int i = vertex2index[v];
+	float *Diag = MF_Diag + 9 * i;
 	if (more_fixed[v] || collision_fixed[v])
 	{
-		float mag = collision_fixed[v] ? collision_mag : control_mag;
-		MF_Diag[9 * i + 0] = mag;
-		MF_Diag[9 * i + 4] = mag;
-		MF_Diag[9 * i + 8] = mag;
+		if (!collision_fixed[v])
+		{
+			Diag[0] = control_mag;
+			Diag[4] = control_mag;
+			Diag[8] = control_mag;
+		}
+		else
+		{
+			const float *norm = collision_normal + 3 * v;
+
+			for (int di = 0; di < 3; di++)
+				for (int dj = 0; dj < 3; dj++)
+					Diag[3 * di + dj] += collision_mag * norm[di] * norm[dj];
+		}
 		//int base = 0;
 		//for (int l = 0; l < layer; l++)
 		//{
@@ -558,7 +572,7 @@ __global__ void Constraint_1_Kernel(const float* X, const float* init_B, const f
 }
 
 __global__ void Energy_Gradient_Kernel(float *G, const float* Tet_Temp, const int* VTT, const int* vtt_num, \
-	const int *fixed, const int *more_fixed, const int *collision_fixed, const float *fixed_X, const float *X, \
+	const int *fixed, const int *more_fixed, const int *collision_fixed, const float *collision_normal, const float *fixed_X, const float *X, \
 	const int *vertex2index, const float control_mag, const float collision_mag, const int number)
 {
 	int v = blockDim.x * blockIdx.x + threadIdx.x;
@@ -575,10 +589,22 @@ __global__ void Energy_Gradient_Kernel(float *G, const float* Tet_Temp, const in
 	}
 	if (fixed[v] || more_fixed[v] || collision_fixed[v])
 	{
-		float mag = collision_fixed[v] ? collision_mag : control_mag;
-		G[3 * i + 0] += mag * (fixed_X[3 * v + 0] - X[3 * v + 0]);
-		G[3 * i + 1] += mag * (fixed_X[3 * v + 1] - X[3 * v + 1]);
-		G[3 * i + 2] += mag * (fixed_X[3 * v + 2] - X[3 * v + 2]);
+		if (!collision_fixed[v])
+		{
+			G[3 * i + 0] += control_mag * (fixed_X[3 * v + 0] - X[3 * v + 0]);
+			G[3 * i + 1] += control_mag * (fixed_X[3 * v + 1] - X[3 * v + 1]);
+			G[3 * i + 2] += control_mag * (fixed_X[3 * v + 2] - X[3 * v + 2]);
+		}
+		else
+		{
+			float coeff = collision_mag * (\
+				(fixed_X[3 * v + 0] - X[3 * v + 0])*collision_normal[3 * v + 0] + \
+				(fixed_X[3 * v + 1] - X[3 * v + 1])*collision_normal[3 * v + 1] + \
+				(fixed_X[3 * v + 2] - X[3 * v + 2])*collision_normal[3 * v + 2]);
+			G[3 * i + 0] += coeff * collision_normal[3 * v + 0];
+			G[3 * i + 1] += coeff * collision_normal[3 * v + 1];
+			G[3 * i + 2] += coeff * collision_normal[3 * v + 2];
+		}
 	}
 }
 
@@ -833,6 +859,7 @@ public:
 	TYPE*   dev_fixed_X;
 	int*	dev_more_fixed;
 	int* dev_collision_fixed;
+	TYPE* dev_collision_normal;
 	int** dev_update_flag;
 	TYPE*	dev_init_B;		// Initialized momentum condition in B
 	
@@ -1263,6 +1290,7 @@ public:
 		err = cudaMalloc((void**)&dev_fixed,		sizeof(int )*  number);
 		err = cudaMalloc((void**)&dev_more_fixed,	sizeof(int )*  number);
 		err = cudaMalloc((void**)&dev_collision_fixed, sizeof(int)*number);
+		err = cudaMalloc((void**)&dev_collision_normal, sizeof(TYPE) * 3 * number);
 		err = cudaMalloc((void**)&dev_fixed_X,		sizeof(TYPE)*3*number);
 		err = cudaMalloc((void**)&dev_init_B,		sizeof(TYPE)*3*number);
 
@@ -3036,11 +3064,11 @@ public:
 		float g_norm;
 
 		// Step 0: Set up Diag data
-		Fixed_Update_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_X, dev_collision_fixed, dev_fixed, dev_more_fixed, dev_fixed_X, number, dir[0], dir[1], dir[2]);
+		Fixed_Update_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_X, dev_collision_fixed, dev_collision_normal, dev_fixed, dev_more_fixed, dev_fixed_X, number, dir[0], dir[1], dir[2]);
 
 		cudaErr = cudaMemset(dev_MF_Diag_addition, 0, sizeof(float) * 9 * number);
 		Diag_Update_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_MF_Diag_addition, dev_more_fixed, dev_collision_fixed, dev_vertex2index[layer], control_mag, \
-			collision_mag, dev_where_to_update, dev_precomputed_Diag_addition, *dev_UtAUs_Diag_addition, dev_handles_num, number, layer);
+			collision_mag, dev_collision_normal, number, layer);
 
 		for (int l = layer - 1; l >= 0; l--)
 		{
@@ -3076,7 +3104,7 @@ public:
 
 				cudaErr = cudaMemset(dev_B[layer], 0, sizeof(float) * dims[layer]);
 				Energy_Gradient_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_B[layer], dev_Tet_Temp, dev_VTT, dev_vtt_num, dev_fixed, dev_more_fixed, \
-					dev_collision_fixed, dev_fixed_X, dev_X, dev_vertex2index[layer], control_mag, collision_mag, number);
+					dev_collision_fixed, dev_collision_normal, dev_fixed_X, dev_X, dev_vertex2index[layer], control_mag, collision_mag, number);
 				Inertia_Gradient_Kernel << <blocksPerGrid, threadsPerBlock >> > (dev_B[layer], dev_inertia_X, dev_X, dev_vertex2index[layer], dev_M, 1.0 / t, number);
 
 				cudaErr = cudaMemcpy(dev_R[layer], dev_B[layer], sizeof(float)*dims[layer], cudaMemcpyDeviceToDevice);
