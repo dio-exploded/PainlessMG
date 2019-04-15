@@ -31,8 +31,9 @@
 #include "../lib/MY_GLSL.h"
 #include "../lib/BMP_IO.h"
 
-//#define BENCHMARK
-#define SETTING4
+//#define BENCHMARKG
+#define SETTINGF
+//#define WHM
 
 #include "CLOTHING.h"
 #define	USE_CUDA
@@ -52,10 +53,10 @@ bool	idle_scrnshot = false;
 int		file_id=0;
 float	time_step=1/30.0;
 int sub_step = 1;
-int pd_iters = 1;
+int pd_iters = 4;
 
-#ifdef BENCHMARK
-FILE	*benchmark = fopen("benchmark\\V-cycle-3.txt", "w");
+#ifdef BENCHMARKG
+FILE	*benchmark = fopen("benchmark\\TEST.txt", "w");
 #endif
 
 CLOTHING<float>		clothing;

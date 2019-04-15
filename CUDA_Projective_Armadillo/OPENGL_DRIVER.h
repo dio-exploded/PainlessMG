@@ -29,9 +29,11 @@
 #ifndef __OPENGL_DRIVER_H__
 #define __OPENGL_DRIVER_H__
 
-#define BENCHMARK
+//#define BENCHMARKG
 
-#define SETTING3
+#define SETTINGF
+//#define enable_PD
+//#define WHM
 
 #include "../lib/MY_GLSL.h"
 #include "../lib/BMP_IO.h"
@@ -54,11 +56,12 @@ bool	idle_scrnshot = false;
 int		file_id=0;
 float	time_step=1.0/30.0;
 int		sub_step = 1;
-int		pd_iters = 4;
+int		pd_iters = 1;
+
 
 ARMADILLO<float>		armadillo;
-#ifdef BENCHMARK
-FILE	*benchmark=fopen("benchmark\\FMG-3-mogai.txt","w");
+#ifdef BENCHMARKG
+FILE	*benchmark=fopen("benchmark\\TEST.txt","w");
 #endif
 int		select_v=-1;
 float	target[3]={0, 0, 0};

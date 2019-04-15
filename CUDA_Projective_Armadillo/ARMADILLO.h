@@ -39,8 +39,16 @@ class ARMADILLO: public CUDA_PROJECTIVE_TET_MESH<TYPE>
 public:
 	ARMADILLO()
 	{
+		FILE *f = fopen("setting.txt", "r");
+		char filename[256];
+#ifdef SETTINGF
+		fscanf(f, "%s", filename);
+#else
+		filename = "armadillo_10k.1";
+#endif
 		//Read_Original_File("sorted_armadillo");
-		Read_Original_File("armadillo_10k.1");
+		Read_Original_File(filename);
+		//Read_Original_File("armadillo_100K");
 		//Read_Original_File("longbar");
 		Scale(0.008);
 		Centralize();
@@ -61,10 +69,74 @@ public:
 		collision_mag = 1;
 		damping		= 1;
 
+#ifdef SETTINGF
+		fscanf(f, "%d", &layer);
+		handles_num = new int[layer + 1];
+		for (int i = 0; i < layer; i++)
+			fscanf(f,"%d", &handles_num[i]);
+		handles_num[layer] = number;
+		stored_as_dense = new bool[layer + 1];
+		for (int i = 0; i <= layer; i++)
+			fscanf(f, "%d", &stored_as_dense[i]);
+		stored_as_LDU = new bool[layer + 1];
+		for (int i = 0; i <= layer; i++)
+			fscanf(f, "%d", &stored_as_LDU[i]);
+		int iters;
+		fscanf(f, "%d", &iters);
+		char buf[256];
+		int iter_num;
+		for (int i = 0; i < iters; i++)
+		{
+			fscanf(f, "%s", buf);
+			if (!strcmp(buf, "Jacobi"))
+			{
+				fscanf(f, "%d", &iter_num);
+				settings.push_back(iterationSetting{ Jacobi,iter_num });
+			}
+			else if (!strcmp(buf, "GaussSeidel"))
+			{
+				fscanf(f, "%d", &iter_num);
+				settings.push_back(iterationSetting{ GaussSeidel,iter_num });
+			}
+			else if (!strcmp(buf, "CG"))
+			{
+				fscanf(f, "%d", &iter_num);
+				settings.push_back(iterationSetting{ CG,iter_num });
+			}
+			else if (!strcmp(buf, "Direct"))
+				settings.push_back(iterationSetting{ Direct,-1 });
+			else if (!strcmp(buf, "DownSample"))
+				settings.push_back(iterationSetting{ DownSample,-1 });
+			else if (!strcmp(buf, "UpSample"))
+				settings.push_back(iterationSetting{ UpSample,-1 });
+		}
+		fscanf(f, "%d", &objects_num);
+		if (objects_num)
+		{
+			objects = (object*)malloc(sizeof(object)*objects_num);
+			for (int i = 0; i < objects_num; i++)
+			{
+				fscanf(f, "%s", buf);
+				if (!strcmp(buf, "Plane"))
+				{
+					objects[i].type = objectType::Plane;
+					fscanf(f, "%f %f %f %f", &objects[i].p_nx, &objects[i].p_ny, &objects[i].p_nz, &objects[i].p_c);
+				}
+				else if (!strcmp(buf, "Sphere"))
+				{
+					objects[i].type = objectType::Sphere;
+					fscanf(f, "%f %f %f %f", &objects[i].s_cx, &objects[i].s_cy, &objects[i].s_cz, &objects[i].s_r);
+				}
+			}
+		}
+
+#else
 #ifdef SETTING1
 		layer = 0;
 		handles_num = new int[layer + 1];
 		handles_num[layer] = number;
+		stored_as_LDU = new bool[layer + 1];
+		stored_as_LDU[0] = false;
 #else
 #ifdef SETTING2
 		layer = 1;
@@ -72,10 +144,21 @@ public:
 		handles_num[0] = 10;
 		handles_num[1] = number;
 		stored_as_dense = new bool[layer+1];
-		stored_as_dense[0] = true;
+		stored_as_dense[0] = false;
 		stored_as_dense[1] = false;
 #else
 #ifdef SETTING3
+		layer = 2;
+		handles_num = new int[layer + 1];
+		handles_num[0] = 10;
+		handles_num[1] = 100;
+		handles_num[2] = number;
+		stored_as_dense = new bool[layer + 1];
+		stored_as_dense[0] = false;
+		stored_as_dense[1] = false;
+		stored_as_dense[2] = false;
+#else
+#ifdef SETTING4
 		layer = 3;
 		handles_num = new int[layer+1];
 		handles_num[0] = 10;
@@ -83,10 +166,17 @@ public:
 		handles_num[2] = 1000;
 		handles_num[3] = number;
 		stored_as_dense = new bool[layer + 1];
-		stored_as_dense[0] = true;
-		stored_as_dense[1] = true;
+		stored_as_dense[0] = false;
+		stored_as_dense[1] = false;
 		stored_as_dense[2] = false;
 		stored_as_dense[3] = false;
+		stored_as_LDU = new bool[layer + 1];
+		stored_as_LDU[0] = false;
+		stored_as_LDU[1] = true;
+		stored_as_LDU[2] = true;
+		stored_as_LDU[3] = true;
+#endif
+#endif
 #endif
 #endif
 #endif

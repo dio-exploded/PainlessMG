@@ -37,13 +37,21 @@ public:
 
 	CLOTHING()
 	{	
-		Make_A_Plane(101,101, -0.5, 0, 0);
+		FILE *f = fopen("setting.txt", "r");
+		int plane_size;
+#ifdef SETTINGF
+		fscanf(f, "%d", &plane_size);
+#else
+		plane_size = 51;
+#endif
+
+		Make_A_Plane(plane_size, plane_size, -0.5, 0, 0);
 		Rotate_X(-3.14159/2);
 		
 		// Set two fixed corners
 		memset(fixed, 0, sizeof(int)*number);
 		fixed[  0]	= 1;
-		fixed[100]	= 1;
+		fixed[plane_size - 1] = 1;
 
 		// Set variables
 		rho			= 0.9998;
@@ -52,6 +60,68 @@ public:
 		//bending_k	= 0.00001;
 		//air_damping	= 1.0/*0.99999*/;
 		//lap_damping = 4;
+
+#ifdef SETTINGF
+		fscanf(f, "%d", &layer);
+		handles_num = new int[layer + 1];
+		for (int i = 0; i < layer; i++)
+			fscanf(f, "%d", &handles_num[i]);
+		handles_num[layer] = number;
+		stored_as_dense = new bool[layer + 1];
+		for (int i = 0; i <= layer; i++)
+			fscanf(f, "%d", &stored_as_dense[i]);
+		stored_as_LDU = new bool[layer + 1];
+		for (int i = 0; i <= layer; i++)
+			fscanf(f, "%d", &stored_as_LDU[i]);
+		int iters;
+		fscanf(f, "%d", &iters);
+		char buf[256];
+		int iter_num;
+		for (int i = 0; i < iters; i++)
+		{
+			fscanf(f, "%s", buf);
+			if (!strcmp(buf, "Jacobi"))
+			{
+				fscanf(f, "%d", &iter_num);
+				settings.push_back(iterationSetting{ Jacobi,iter_num });
+			}
+			else if (!strcmp(buf, "GaussSeidel"))
+			{
+				fscanf(f, "%d", &iter_num);
+				settings.push_back(iterationSetting{ GaussSeidel,iter_num });
+			}
+			else if (!strcmp(buf, "CG"))
+			{
+				fscanf(f, "%d", &iter_num);
+				settings.push_back(iterationSetting{ CG,iter_num });
+			}
+			else if (!strcmp(buf, "Direct"))
+				settings.push_back(iterationSetting{ Direct,-1 });
+			else if (!strcmp(buf, "DownSample"))
+				settings.push_back(iterationSetting{ DownSample,-1 });
+			else if (!strcmp(buf, "UpSample"))
+				settings.push_back(iterationSetting{ UpSample,-1 });
+		}
+		fscanf(f, "%d", &objects_num);
+		if (objects_num)
+		{
+			objects = (object*)malloc(sizeof(object)*objects_num);
+			for (int i = 0; i < objects_num; i++)
+			{
+				fscanf(f, "%s", buf);
+				if (!strcmp(buf, "Plane"))
+				{
+					objects[i].type = objectType::Plane;
+					fscanf(f, "%f %f %f %f", &objects[i].p_nx, &objects[i].p_ny, &objects[i].p_nz, &objects[i].p_c);
+				}
+				else if (!strcmp(buf, "Sphere"))
+				{
+					objects[i].type = objectType::Sphere;
+					fscanf(f, "%f %f %f %f", &objects[i].s_cx, &objects[i].s_cy, &objects[i].s_cz, &objects[i].s_r);
+				}
+			}
+		}
+#endif
 #ifdef SETTING1
 		layer = 0;
 		handles_num = new int[layer+1];
@@ -72,7 +142,7 @@ public:
 		layer = 2;
 		handles_num = new int[layer + 1];
 		handles_num[0] = 25;
-		handles_num[1] = 1000;
+		handles_num[1] = 250;
 		handles_num[2] = number;
 		stored_as_dense = new bool[layer + 1];
 		stored_as_dense[0] = false;
@@ -80,17 +150,19 @@ public:
 		stored_as_dense[2] = false;
 #endif
 #ifdef SETTING4
-		layer = 3;
+		layer = 4;
 		handles_num = new int[layer + 1];
 		handles_num[0] = 25;
-		handles_num[1] = 250;
-		handles_num[2] = 1500;
-		handles_num[3] = number;
+		handles_num[1] = 50;
+		handles_num[2] = 100;
+		handles_num[3] = 200;
+		handles_num[4] = number;
 		stored_as_dense = new bool[layer + 1];
 		stored_as_dense[0] = false;
 		stored_as_dense[1] = false;
 		stored_as_dense[2] = false;
 		stored_as_dense[3] = false;
+		stored_as_dense[4] = false;
 #endif
 	}
 
