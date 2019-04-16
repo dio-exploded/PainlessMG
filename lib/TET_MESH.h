@@ -63,7 +63,7 @@ public:
 
 	TET_MESH(): number(0)
 	{
-		max_number	= 100000;
+		max_number	= 1000000;
 		X			= new TYPE	[max_number*3];
 		M			= new TYPE	[max_number  ];
 		Tet			= new int	[max_number*4];
