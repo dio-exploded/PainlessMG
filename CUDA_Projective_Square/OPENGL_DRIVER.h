@@ -50,6 +50,7 @@ float	elevate_angle	= 10;
 float	center[3]		={0, -0.4, 0};
 bool	idle_run=false;
 bool	idle_scrnshot = false;
+bool	idle_export_obj = false;
 int		file_id=0;
 float	time_step=1/30.0;
 int sub_step = 1;
@@ -314,8 +315,22 @@ public:
 		glRasterPos3f(-1.35, 0.95, -30);
 		char text[1024];
 		sprintf_s(text, "FPS: %4.2f", clothing.fps);
+		if (idle_scrnshot)
+		{
+			strcat(text, " | Recording");
+		}
+		if (idle_export_obj)
+		{
+			strcat(text, " | Exporting OBJ");
+		}
+		if (idle_scrnshot | idle_export_obj)
+		{
+			char frame_text[1024];
+			sprintf_s(frame_text, " | Frame#: %d", file_id);
+			strcat(text, frame_text);
+		}
 		for(int i=0; text[i]!='\0'; i++)
-        glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, text[i]);
+        glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, text[i]);
 		glEnable(GL_DEPTH_TEST);
 
 		glutSwapBuffers();
@@ -324,14 +339,23 @@ public:
 	static void Handle_Idle()
 	{
 		if (idle_run)	Update(time_step / sub_step);
-		if (idle_run&idle_scrnshot)
+		if (idle_run)
 		{
 			char filename[1024];
-			float* pixels = new float[screen_width*screen_height * 3];
-			glReadPixels(0, 0, screen_width, screen_height, GL_RGB, GL_FLOAT, pixels);
-			sprintf_s(filename, "output/clothing_%04d.bmp", file_id);
-			BMP_Write(filename, pixels, screen_width, screen_height);
-			delete[] pixels;
+
+			if (idle_scrnshot)
+			{
+				float* pixels = new float[screen_width*screen_height * 3];
+				glReadPixels(0, 0, screen_width, screen_height, GL_RGB, GL_FLOAT, pixels);
+				sprintf_s(filename, "output/screenshots/screenshot_%04d.bmp", file_id);
+				BMP_Write(filename, pixels, screen_width, screen_height);
+				delete[] pixels;
+			}
+			if (idle_export_obj)
+			{
+				sprintf_s(filename, "output/mesh/mesh_%04d.obj", file_id);
+				clothing.Write_OBJ(filename);
+			}
 
 			file_id += 1;
 		}
@@ -451,10 +475,15 @@ public:
 				//printf("fid: %d\n", file_id);
 				break;
 			}
-			case 'p':
+			case '9':
 			{
 				//idle_render=!idle_render;
 				idle_scrnshot = !idle_scrnshot;
+				break;
+			}
+			case '0':
+			{
+				idle_export_obj = !idle_export_obj;
 				break;
 			}
 		}

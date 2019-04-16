@@ -3881,6 +3881,20 @@ public:
 		input.close();
 		return true;
 	}
+
+	void Write_OBJ(const char *filename)
+	{
+		FILE *fp = fopen(filename, "w+");
+		for (int v = 0; v < number; v++)
+			fprintf(fp, "v %f %f %f\n", X[v * 3 + 0], X[v * 3 + 1], X[v * 3 + 2]);
+
+		for (int t = 0; t < t_number; t++)
+		{
+			fprintf(fp, "f %d %d %d\n",
+				T[t * 3 + 0] + 1, T[t * 3 + 1] + 1, T[t * 3 + 2] + 1);
+		}
+		fclose(fp);
+	}
 };
 
 
