@@ -1,8 +1,9 @@
 51
+benchmark\\test-pd-51.txt
 0
 
 0
 0
 1
-CG 25
+Direct
 0

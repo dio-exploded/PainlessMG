@@ -29,10 +29,10 @@
 #ifndef __OPENGL_DRIVER_H__
 #define __OPENGL_DRIVER_H__
 
-//#define BENCHMARKG
+#define BENCHMARKG
 
 #define SETTINGF
-//#define enable_PD
+#define enable_PD
 //#define WHM
 
 #include "../lib/MY_GLSL.h"
@@ -56,13 +56,10 @@ bool	idle_scrnshot = false;
 int		file_id=0;
 float	time_step=1.0/30.0;
 int		sub_step = 1;
-int		pd_iters = 1;
+int		pd_iters = 200;
 
 
 ARMADILLO<float>		armadillo;
-#ifdef BENCHMARKG
-FILE	*benchmark=fopen("benchmark\\TEST.txt","w");
-#endif
 int		select_v=-1;
 float	target[3]={0, 0, 0};
 

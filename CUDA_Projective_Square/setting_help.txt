@@ -1,4 +1,5 @@
 size
+output file
 layer number
 handles number for each layer
 stored as dense for each layer(useless)

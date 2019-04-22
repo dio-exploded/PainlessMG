@@ -41,21 +41,31 @@ public:
 	{
 		FILE *f = fopen("setting.txt", "r");
 		char filename[256];
+		char output[256];
 #ifdef SETTINGF
 		fscanf(f, "%s", filename);
 #else
 		filename = "armadillo_10k.1";
 #endif
+		fscanf(f, "%s", output);
+		benchmark = fopen(output, "w");
+#ifdef BENCHMARKG
+		if (!benchmark)
+			printf("no benchmark file\n");
+#endif
 		//Read_Original_File("sorted_armadillo");
 		Read_Original_File(filename);
 		//Read_Original_File("armadillo_100K");
 		//Read_Original_File("longbar");
-		Scale(0.008);
+		float temp;
+		fscanf(f, "%f", &temp);
+		Scale(temp);
 		Centralize();
 		printf("N: %d, %d\n", number, tet_number);
 		
 		//Set fixed nodes
-		Rotate_X(-0.2);
+		fscanf(f, "%f", &temp);
+		Rotate_X(temp);
 #ifdef _FIXED
 		for (int v = 0; v < number; v++)
 			//if(X[v*3+1]>-0.04 && X[v*3+1]<0)		
@@ -63,7 +73,9 @@ public:
 			if (fabsf(X[v * 3 + 1] + 0.01) < 2 * (X[v * 3 + 2] - 0.2))
 				fixed[v] = 1;
 #endif
-		Rotate_X(1.2);
+		fscanf(f, "%f", &temp);
+		Rotate_X(temp);
+		
 		elasticity	= 100/*18000000*/; //5000000
 		control_mag	= 1;		//500
 		collision_mag = 1;

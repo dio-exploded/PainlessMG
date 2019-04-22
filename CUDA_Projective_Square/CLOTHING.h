@@ -39,10 +39,17 @@ public:
 	{	
 		FILE *f = fopen("setting.txt", "r");
 		int plane_size;
+		char output[256];
 #ifdef SETTINGF
 		fscanf(f, "%d", &plane_size);
 #else
 		plane_size = 51;
+#endif
+		fscanf(f, "%s", output);
+		benchmark = fopen(output, "w");
+#ifdef BENCHMARKG
+		if (!benchmark)
+			printf("no benchmark file\n");
 #endif
 
 		Make_A_Plane(plane_size, plane_size, -0.5, 0, 0);
@@ -55,8 +62,8 @@ public:
 
 		// Set variables
 		rho			= 0.9998;
-		control_mag	= 1000;
-		spring_k	= 100;
+		control_mag	= 100;
+		spring_k	= 50;
 		//bending_k	= 0.00001;
 		//air_damping	= 1.0/*0.99999*/;
 		//lap_damping = 4;

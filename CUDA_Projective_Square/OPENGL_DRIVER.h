@@ -31,8 +31,9 @@
 #include "../lib/MY_GLSL.h"
 #include "../lib/BMP_IO.h"
 
-//#define BENCHMARKG
+#define BENCHMARKG
 #define SETTINGF
+#define enable_PD
 //#define WHM
 
 #include "CLOTHING.h"
@@ -53,11 +54,11 @@ bool	idle_scrnshot = false;
 int		file_id=0;
 float	time_step=1/30.0;
 int sub_step = 1;
-int pd_iters = 4;
+int pd_iters = 200;
 
-#ifdef BENCHMARKG
-FILE	*benchmark = fopen("benchmark\\TEST.txt", "w");
-#endif
+//#ifdef BENCHMARKG
+//FILE	*benchmark = fopen("benchmark\\TEST.txt", "w");
+//#endif
 
 CLOTHING<float>		clothing;
 int		select_v=-1;
