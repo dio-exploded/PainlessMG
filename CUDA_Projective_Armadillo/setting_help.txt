@@ -1,4 +1,6 @@
 mesh name
+output file
+scale pre-rotation post-rotation
 layer number
 handles number for each layer
 stored as dense for each layer(useless)
