@@ -1,0 +1,20 @@
+101
+benchmark\\test-ours.txt
+0
+3 1 0 0
+2
+100 1000
+0 0 0
+0 0 0
+9
+Jacobi 2
+DS
+Jacobi 5
+DS
+CG 20
+US
+Jacobi 5
+US
+Jacobi 2
+0.99806
+0

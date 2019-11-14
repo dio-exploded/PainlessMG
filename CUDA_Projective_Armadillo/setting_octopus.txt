@@ -1,0 +1,22 @@
+meshes\\octopus_40K
+benchmark\\test.txt
+0
+1.5 4.14 0.0
+4 0 0 0
+1
+2
+25 300
+1 0 0
+0 1 1
+9
+GS 2
+DS
+GS 4
+DS
+Direct
+US
+GS 4
+US
+GS 2
+0.9995
+0

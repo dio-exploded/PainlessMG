@@ -1,0 +1,25 @@
+[cloth size]
+
+[output directory of benckmark records]
+
+[enable benchmark]
+
+[number of iterations in one frame] [enable Hessian] [enable Chebyshev] [enable pre-factorization on the finest level]
+
+[number of coarsened level]
+
+[number of vertices in each coarsened level, begin from the coarsest level]
+
+[save matrix in each level (including the finest level) in a dense matrix memory layout]
+
+[save matrix in each level (including the finest level) in a LDU memory layout]
+
+[number of multigrid operations]
+
+[list of multigrid operations]
+
+[parameter for Chebyshev]
+
+[number of objects in the scene]
+
+[list of objects in the scene]
