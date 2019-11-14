@@ -1,7 +1,0 @@
-﻿     Creating library D:\xzyy\computer graphic\codes\Chebyshev_sim_x64\Chebyshev_sim_x64\Chebyshev\CUDA_Projective_Square\x64\Release\CUDA_Projective_Square.lib and object D:\xzyy\computer graphic\codes\Chebyshev_sim_x64\Chebyshev_sim_x64\Chebyshev\CUDA_Projective_Square\x64\Release\CUDA_Projective_Square.exp
-  LINK : /LTCG specified but no code generation required; remove /LTCG from the link command line to improve linker performance
-  CUDA_Projective_Square.vcxproj -> D:\xzyy\computer graphic\codes\Chebyshev_sim_x64\Chebyshev_sim_x64\Chebyshev\CUDA_Projective_Square\x64\Release\CUDA_Projective_Square.exe
-  copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\bin\cudart*.dll" "D:\xzyy\computer graphic\codes\Chebyshev_sim_x64\Chebyshev_sim_x64\Chebyshev\CUDA_Projective_Square\x64\Release\"
-  C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\bin\cudart32_100.dll
-  C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\bin\cudart64_100.dll
-          2 file(s) copied.
