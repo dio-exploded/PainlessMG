@@ -1,5 +1,7 @@
 # PainlessMG
 This code is developed base on Huaming Wang's code base
+http://web.cse.ohio-state.edu/~wang.3602/Wang-2015-ACS/Chebyshev_sim.zip
+
 # Usage
 Codes in *CUDA_Projective_Armadillo* is for a tet mesh simulation.\
 Codes in *CUDA_Projective_Square* is for a mass-spring cloth simulation.
