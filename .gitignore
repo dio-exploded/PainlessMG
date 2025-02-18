@@ -1,0 +1,4 @@
+build
+.vs
+CUDA_Projective_Armadillo/x64
+soft.exe

@@ -116,3 +116,12 @@ This code has not been re-written yet for people to read it easily. Contact Zang
 
 
 
+# CMake
+This is tested on CUDA 12.5 and VS2022. Only for softbody for now.
+**Build**
+```
+cmake -B build
+cmake --build build --config=Release
+```
+**Run**
+cd to CUDA_Projective_Armadillo and run soft.exe

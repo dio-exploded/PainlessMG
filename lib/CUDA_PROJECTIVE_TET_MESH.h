@@ -1838,8 +1838,8 @@ public:
 	cusparseMatDescr_t descr;
 	cusparseMatDescr_t descrU;
 	cusparseMatDescr_t descrL;
-	cusparseSolveAnalysisInfo_t infoU;
-	cusparseSolveAnalysisInfo_t infoL;
+	// cusparseSolveAnalysisInfo_t infoU;
+	// cusparseSolveAnalysisInfo_t infoL;
 
 	TYPE *dev_UtAUs_chol;
 	TYPE *dev_chol_fixed;
@@ -2247,8 +2247,8 @@ public:
 		cusparseSetMatDiagType(descrL, CUSPARSE_DIAG_TYPE_NON_UNIT);
 		cusparseSetMatFillMode(descrL, CUSPARSE_FILL_MODE_LOWER);
 
-		cusparseCreateSolveAnalysisInfo(&infoU);
-		cusparseCreateSolveAnalysisInfo(&infoL);
+		// cusparseCreateSolveAnalysisInfo(&infoU);
+		// cusparseCreateSolveAnalysisInfo(&infoL);
 		
 	}
 
@@ -3340,6 +3340,13 @@ public:
 		dev_Uts_colInd = (int**)malloc(sizeof(int*)*layer);
 		dev_Uts_Val = (TYPE**)malloc(sizeof(TYPE*)*layer);
 
+		TYPE * buffer;
+		size_t bufferSize = 0;
+		cudaDataType  valType = CUDA_R_32F;
+		cusparseAction_t copyValues = CUSPARSE_ACTION_NUMERIC;
+		cusparseIndexBase_t idxBase = CUSPARSE_INDEX_BASE_ZERO;
+		cusparseCsr2CscAlg_t    alg = CUSPARSE_CSR2CSC_ALG_DEFAULT;
+
 		for (int l = 0; l < layer; l++)
 		{
 			err = cudaMalloc((void**)&dev_Us_rowPtr[l], sizeof(int)*(dims[l + 1] + 1));
@@ -3354,8 +3361,13 @@ public:
 			err = cudaMalloc((void**)&dev_Uts_colInd[l], sizeof(int)*Us_nnz[l]);
 			err = cudaMalloc((void**)&dev_Uts_Val[l], sizeof(TYPE)*Us_nnz[l]);
 
-			cuspErr = cusparseScsr2csc(cusparseHandle, dims[l + 1], dims[l], Us_nnz[l], dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], \
-				dev_Uts_Val[l], dev_Uts_colInd[l], dev_Uts_rowPtr[l], CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO);
+			cuspErr = cusparseCsr2cscEx2_bufferSize(cusparseHandle, dims[l + 1], dims[l], Us_nnz[l], dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], dev_Uts_Val[l], dev_Uts_colInd[l], dev_Uts_rowPtr[l] , valType, copyValues, idxBase, alg, &bufferSize);
+			buffer = (TYPE*)malloc(bufferSize);
+			cuspErr = cusparseCsr2cscEx2(           cusparseHandle, dims[l + 1], dims[l], Us_nnz[l], dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], dev_Uts_Val[l], dev_Uts_colInd[l], dev_Uts_rowPtr[l] , valType, copyValues, idxBase, alg, buffer);       
+
+			// cuspErr = cusparseScsr2csc(cusparseHandle, dims[l + 1], dims[l], Us_nnz[l], dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], \
+			// 	dev_Uts_Val[l], dev_Uts_colInd[l], dev_Uts_rowPtr[l], CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO);
+				
 
 		}
 
@@ -4527,8 +4539,49 @@ public:
 		//outputVector<TYPE>("benchmark\\down.txt", dims[layer], temp);
 		//delete temp;
 
-		cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l - 1], dims[l], \
-			Us_nnz[l - 1], &one, descr, dev_Uts_Val[l - 1], dev_Uts_rowPtr[l - 1], dev_Uts_colInd[l - 1], dev_R[l], &zero, dev_B[l - 1]);
+		// Legacy spmv(CUDA 10.0)
+		// cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l - 1], dims[l], \
+		// 	Us_nnz[l - 1], &one, descr, dev_Uts_Val[l - 1], dev_Uts_rowPtr[l - 1], dev_Uts_colInd[l - 1], dev_R[l], &zero, dev_B[l - 1]);
+
+		// New spmv (CUDA 12)
+		cusparseSpMatDescr_t matA;
+		cusparseDnVecDescr_t vecX, vecY;
+		void* dBuffer = nullptr;
+		size_t bufferSize = 0;
+		const float alpha = 1.0f;
+		const float beta = 0.0f;
+
+		// 创建稀疏矩阵描述符
+		cusparseCreateCsr(&matA, dims[l - 1], dims[l], Us_nnz[l - 1],
+						dev_Uts_rowPtr[l - 1], dev_Uts_colInd[l - 1], dev_Uts_Val[l - 1],
+						CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+						CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F);
+
+		// 创建密集向量描述符
+		cusparseCreateDnVec(&vecX, dims[l], dev_R[l], CUDA_R_32F);
+		cusparseCreateDnVec(&vecY, dims[l - 1], dev_B[l - 1], CUDA_R_32F);
+
+		// 计算缓冲区大小
+		cusparseSpMV_bufferSize(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+								&alpha, matA, vecX, &beta, vecY, CUDA_R_32F,
+								CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize);
+
+		// 分配缓冲区
+		cudaMalloc(&dBuffer, bufferSize);
+
+		// 执行 SpMV 操作
+		cusparseSpMV(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+					&alpha, matA, vecX, &beta, vecY, CUDA_R_32F,
+					CUSPARSE_SPMV_ALG_DEFAULT, dBuffer);
+
+		// 销毁描述符
+		cusparseDestroySpMat(matA);
+		cusparseDestroyDnVec(vecX);
+		cusparseDestroyDnVec(vecY);
+
+		// 释放缓冲区
+		cudaFree(dBuffer);
+
 
 		cublasScopy(cublasHandle, dims[l - 1], dev_B[l - 1], 1, dev_R[l - 1], 1);
 
@@ -4548,8 +4601,47 @@ public:
 		cusparseStatus_t cuspErr;
 		cublasStatus_t cublasStatus;
 
-		cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l + 1], dims[l], \
-			Us_nnz[l], &one, descr, dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], dev_deltaX[l], &zero, dev_temp_X[l + 1]);
+		// cuspErr = cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, dims[l + 1], dims[l], \
+			// Us_nnz[l], &one, descr, dev_Us_Val[l], dev_Us_rowPtr[l], dev_Us_colInd[l], dev_deltaX[l], &zero, dev_temp_X[l + 1]);
+
+			// 新的调用命令
+			cusparseSpMatDescr_t matA;
+			cusparseDnVecDescr_t vecX, vecY;
+			void* dBuffer = nullptr;
+			size_t bufferSize = 0;
+			const float alpha = 1.0f;
+			const float beta = 0.0f;
+
+			// 创建稀疏矩阵描述符
+			cusparseCreateCsr(&matA, dims[l + 1], dims[l], Us_nnz[l],
+							dev_Us_rowPtr[l], dev_Us_colInd[l], dev_Us_Val[l],
+							CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+							CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F);
+
+			// 创建密集向量描述符
+			cusparseCreateDnVec(&vecX, dims[l], dev_deltaX[l], CUDA_R_32F);
+			cusparseCreateDnVec(&vecY, dims[l + 1], dev_temp_X[l + 1], CUDA_R_32F);
+
+			// 计算缓冲区大小
+			cusparseSpMV_bufferSize(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+									&alpha, matA, vecX, &beta, vecY, CUDA_R_32F,
+									CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize);
+
+			// 分配缓冲区
+			cudaMalloc(&dBuffer, bufferSize);
+
+			// 执行 SpMV 操作
+			cusparseSpMV(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+						&alpha, matA, vecX, &beta, vecY, CUDA_R_32F,
+						CUSPARSE_SPMV_ALG_DEFAULT, dBuffer);
+
+			// 销毁描述符
+			cusparseDestroySpMat(matA);
+			cusparseDestroyDnVec(vecX);
+			cusparseDestroyDnVec(vecY);
+
+			// 释放缓冲区
+			cudaFree(dBuffer);
 
 		cublasStatus = cublasSaxpy(cublasHandle, dims[l + 1], &one, dev_temp_X[l + 1], 1, dev_deltaX[l + 1], 1);
 
